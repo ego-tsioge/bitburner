@@ -1,0 +1,25 @@
+# Node
+node_modules/
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Bitburner specific
+# Falls Sie temporäre Dateien oder Backups haben möchten
+*.bak
+*.tmp
+
+# Savegames
+*.json.gz
