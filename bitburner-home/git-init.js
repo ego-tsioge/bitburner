@@ -1,5 +1,28 @@
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
 
+// Globale Konfigurationen
+const GITHUB_USER = 'ego-tsioge';
+const GITHUB_REPO = 'bitburner';
+
+const FILTER = {
+	baseDir: 'bitburner-home/', // Optional: Nur Dateien aus diesem Verzeichnis
+	extension: ['.js'], // Optional: Nur Dateien mit diesen Endungen
+};
+
+const REMOVE_PATTERNS = [
+	/^$/,                // Leere Zeilen
+	/^\/\/\//,           // Zeilen die mit /// beginnen
+	/@ts-check/,         // Zeilen die @ts-check enthalten
+	/@typedef/,          // Zeilen die @typedef enthalten
+];
+
+const ALIASES = {
+	cls: 'clear',
+	update: 'run git-init.js', // Update aus Default-Branch
+	cleanup: 'run git-init.js --cleanup', // Cleanup und Update
+	killAll: 'run basis.js --ram-override 2.3 --killall', // Kill all scripts
+};
+
 /**
  * Lädt alle .js Dateien aus dem bitburner-home Verzeichnis des Repos
  * und setzt Test-Aliase
@@ -10,24 +33,6 @@
  * @param {string} [options.branch=''] Spezifischer Branch
  */
 export async function main(ns) {
-	// GitHub Basis-Konfiguration
-	const GITHUB_USER = 'ego-tsioge';
-	const GITHUB_REPO = 'bitburner';
-
-	// Optionale Konfigurationen
-	const FILTER = {
-		baseDir: 'bitburner-home/', // Optional: Nur Dateien aus diesem Verzeichnis
-		extension: ['.js'], // Optional: Nur Dateien mit diesen Endungen
-	};
-
-	// Standard Aliase für häufig genutzte Befehle
-	const ALIASES = {
-		cls: 'clear',
-		update: `run ${ns.getScriptName()}`, // Update aus Default-Branch
-		cleanup: `run ${ns.getScriptName()} --cleanup`, // Cleanup und Update
-		killAll: 'run basis.js --ram-override 2.3 --killall', // Kill all scripts
-	};
-
 	// scriptstart
 	ns.disableLog('ALL');
 	terminal('clear');
@@ -37,6 +42,7 @@ export async function main(ns) {
 		const options = ns.flags([
 			['cleanup', false],
 			['branch', ''],
+			['keep-types', false], // Neue Option
 		]);
 		const branch = /** @type {string} */ (options.branch);
 
@@ -72,8 +78,8 @@ export async function main(ns) {
 			ns.tprint(`Nutze Default-Branch: ${targetBranch}`);
 		}
 
-		// Dateien herunterladen
-		await downloadFiles(ns, GITHUB_USER, GITHUB_REPO, targetBranch, FILTER);
+		// Dateien herunterladen (mit neuem removeTypes Parameter)
+		await downloadFiles(ns, GITHUB_USER, GITHUB_REPO, targetBranch, FILTER, !options['keep-types']);
 
 		// Prüfe und entferne n00dles script
 		ns.tprint('Bereinige Dateien...');
@@ -125,14 +131,34 @@ async function findDefaultBranch(ns, user, repo) {
 }
 
 /**
+ * Entfernt Type-Definitionen aus dem Dateiinhalt
+ * @param {NS} ns - Netscript API
+ * @param {string} content - Dateiinhalt
+ * @returns {string} Bereinigter Inhalt
+ */
+function removeTypeDefinitions(ns, content) {
+	const lines = content.split('\n');
+	let startIndex = 0;
+
+	// Finde erste Zeile die keine Type-Definition ist
+	while (startIndex < lines.length && REMOVE_PATTERNS.some(pattern => pattern.test(lines[startIndex]))) {
+		startIndex++;
+	}
+
+	// Gib alle Zeilen ab diesem Index zurück
+	return lines.slice(startIndex).join('\n');
+}
+
+/**
  * Lädt Dateien aus dem Repository herunter
  * @param {NS} ns - Netscript API
  * @param {string} user - GitHub Username
  * @param {string} repo - Repository Name
  * @param {string} branch - Branch Name
  * @param {Object} [filter] - Optionale Filter-Konfiguration
+ * @param {boolean} [removeTypes=false] - Type Definitions entfernen
  */
-async function downloadFiles(ns, user, repo, branch, filter = {}) {
+async function downloadFiles(ns, user, repo, branch, filter = {}, removeTypes = false) {
 	// GitHub API URLs
 	const apiUrl = `https://api.github.com/repos/${user}/${repo}/git/trees/${branch}?recursive=1`;
 	const rawBaseUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/`;
@@ -165,6 +191,11 @@ async function downloadFiles(ns, user, repo, branch, filter = {}) {
 		for (const file of filteredFiles) {
 			try {
 				await ns.wget(file.url, file.path);
+				if (removeTypes && file.path.endsWith('.js')) {
+					const content = ns.read(file.path);
+					const cleanedContent = removeTypeDefinitions(ns, content);
+					await ns.write(file.path, cleanedContent, 'w');
+				}
 				ns.tprint(`✓ ${file.path} heruntergeladen`);
 			} catch (error) {
 				ns.tprint(`✗ Fehler beim Download von ${file.path}: ${error}`);
