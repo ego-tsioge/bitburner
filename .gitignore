@@ -23,3 +23,6 @@ npm-debug.log*
 
 # Savegames
 *.json.gz
+
+# Types
+types/
