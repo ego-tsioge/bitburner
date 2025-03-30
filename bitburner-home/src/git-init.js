@@ -1,6 +1,5 @@
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
 
-
 /**
  * Lädt alle .js Dateien aus dem bitburner-home Verzeichnis des Repos
  * und setzt Test-Aliase
@@ -13,20 +12,20 @@
 export async function main(ns) {
 	// GitHub Basis-Konfiguration
 	const GITHUB_USER = 'ego-tsioge';
-	const GITHUB_REPO = 'bitburner-scripts';
+	const GITHUB_REPO = 'bitburner';
 
 	// Optionale Konfigurationen
 	const FILTER = {
-		baseDir: 'bitburner-home/',  // Optional: Nur Dateien aus diesem Verzeichnis
-		extension: ['.js']           // Optional: Nur Dateien mit diesen Endungen
+		baseDir: 'bitburner-home/', // Optional: Nur Dateien aus diesem Verzeichnis
+		extension: ['.js'], // Optional: Nur Dateien mit diesen Endungen
 	};
 
 	// Standard Aliase für häufig genutzte Befehle
 	const ALIASES = {
-		'cls': 'clear',
-		'update': `run ${ns.getScriptName()}`,           // Update aus Default-Branch
-		'cleanup': `run ${ns.getScriptName()} --cleanup`, // Cleanup und Update
-		'killAll': 'run basis.js --ram-override 2.3 --killall'  // Kill all scripts
+		cls: 'clear',
+		update: `run ${ns.getScriptName()}`, // Update aus Default-Branch
+		cleanup: `run ${ns.getScriptName()} --cleanup`, // Cleanup und Update
+		killAll: 'run basis.js --ram-override 2.3 --killall', // Kill all scripts
 	};
 
 	// scriptstart
@@ -37,7 +36,7 @@ export async function main(ns) {
 		// Parameter auswerten
 		const options = ns.flags([
 			['cleanup', false],
-			['branch', '']
+			['branch', ''],
 		]);
 		const branch = /** @type {string} */ (options.branch);
 
@@ -95,7 +94,6 @@ export async function main(ns) {
 			ns.tprint('System wurde komplett neu initialisiert.');
 		}
 		ns.tprint('Starte basis.js um das System zu aktivieren.');
-
 	} catch (error) {
 		ns.tprint(`✗ Fehler in ${error.stack?.split('\n')[1]?.trim() || 'unbekannt'}: ${error}`);
 		return;
@@ -148,12 +146,14 @@ async function downloadFiles(ns, user, repo, branch, filter = {}) {
 
 		// Filtere Dateien nach Konfiguration
 		const filteredFiles = files
-			.filter(f => !filter.baseDir || f.path.startsWith(filter.baseDir))
-			.filter(f => !filter.extension || filter.extension.some(ext => f.path.endsWith(ext)))
-			.filter(f => !f.path.endsWith(currentScript))  // Eigenes Script nicht überschreiben
-			.map(f => ({
+			.filter((f) => !filter.baseDir || f.path.startsWith(filter.baseDir))
+			.filter(
+				(f) => !filter.extension || filter.extension.some((ext) => f.path.endsWith(ext))
+			)
+			.filter((f) => !f.path.endsWith(currentScript)) // Eigenes Script nicht überschreiben
+			.map((f) => ({
 				path: filter.baseDir ? f.path.replace(filter.baseDir, '') : f.path,
-				url: rawBaseUrl + f.path
+				url: rawBaseUrl + f.path,
 			}));
 
 		// Lade jede Datei herunter
@@ -189,7 +189,6 @@ function terminal(command) {
 	terminalInput[handler].onChange({ target: terminalInput });
 	terminalInput[handler].onKeyDown({
 		key: 'Enter',
-		preventDefault: () => null
+		preventDefault: () => null,
 	});
 }
-
