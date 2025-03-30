@@ -12,7 +12,9 @@
 		"moduleResolution": "node"
 	},
 	"include": [
-		"bitburner-home/src/**/*"
+		"bitburner-home/src/**/*",
+		"bitburner-home/git-init.js",
+		"bitburner-home/basis.js"
 	],
 	"exclude": [
 		"node_modules"
