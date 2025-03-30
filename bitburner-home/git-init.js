@@ -48,15 +48,20 @@ export async function main(ns) {
 
 			// Alle Dateien außer dem aktuellen Script löschen
 			const files = ns.ls('home');
-			for (const file of files) {
-				if (file !== currentScript) {
-					try {
-						ns.rm(file);
-						ns.tprint(`✓ Gelöscht: ${file}`);
-					} catch (error) {
-						ns.tprint(`⚠ Konnte ${file} nicht löschen (wahrscheinlich geschützt)`);
-					}
+			const filteredFiles = files
+				.filter(f => !f.endsWith(currentScript))  // Eigenes Script nicht überschreiben
+				.filter(f => !f.endsWith('.exe'))        // Keine .exe Dateien
+				.filter(f => !f.endsWith('.lit'))        // Keine .lit Dateien
+				.filter(f => !f.endsWith('.msg'))        // Keine .msg Dateien
+
+			for (const file of filteredFiles) {
+				try {
+					ns.rm(file);
+					ns.tprint(`✓ Gelöscht: ${file}`);
+				} catch (error) {
+					ns.tprint(`⚠ Konnte ${file} nicht löschen (wahrscheinlich geschützt)`);
 				}
+
 			}
 		}
 
