@@ -8,6 +8,7 @@ package-lock.json
 *.swp
 *.swo
 *.cursorrules
+jsconfig.json
 
 # OS
 .DS_Store
@@ -27,3 +28,6 @@ npm-debug.log*
 
 # Types
 types/
+
+# Test directory
+bitburner-home/test/
