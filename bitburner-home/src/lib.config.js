@@ -58,6 +58,12 @@ export const portHackerSet = [
 
 Object.freeze(portHackerSet);  // Make hackers immutable
 
+/** Die Standard-Operatoren die auf jeden Bot deployed werden */
+export const operatorScripts = ['bin.hack.js', 'bin.grow.js', 'bin.weaken.js'];
+
+Object.freeze(operatorScripts);
+
+
 /**
  * Central settings and configuration
  * Manages persistent settings in localStorage with defaults
