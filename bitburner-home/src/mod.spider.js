@@ -1,6 +1,7 @@
 /** @ts-check */
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
-/** @typedef {import("/types/egoDataTypes.js").ServerData} ServerData */
+/** @typedef {import("/types/NetscriptDefinitions").Server} Server */
+/** @typedef {import("/types/egoDataTypes").ServerData} ServerData */
 
 import { portHackerSet, saveToStorage, Settings, operatorScripts } from './lib.config.js';
 import { Handler } from './lib.handler.js';
@@ -69,11 +70,13 @@ export function executeSpider(ns, logger) {
  * @throws {Error} Wenn der Server nicht existiert (von ns.getServer)
  */
 function peekIntoServer(ns, logger, hostname) {
+	/** @type {Server} */
 	const data = ns.getServer(hostname);
 
 	const isHome = data.hostname === 'home';
 	const scriptRam = ns.getScriptRam(ns.getScriptName());
-	const usedRam = Math.max(0, isHome ? data.usedRam - scriptRam : data.ramUsed);
+	if (isHome) ns.tprint(`scriptRam: ${scriptRam}`);
+	const usedRam = Math.max(0, isHome ? data.ramUsed - scriptRam : data.ramUsed);
 	const trueMax = data.maxRam;
 	const maxRam = Math.max(0, isHome ? trueMax - Settings.reservedHomeRam : trueMax);
 	const freeRam = Math.max(0, maxRam - usedRam);
@@ -98,20 +101,21 @@ function peekIntoServer(ns, logger, hostname) {
 		},
 		requiredPorts: data.numOpenPortsRequired,
 		security: {
-			level: data.securityLevel,
-			min: data.minSecurityLevel
+			actual: data.hackDifficulty,
+			min: data.minDifficulty
 		},
 		money: {
 			available: data.moneyAvailable,
-			max: data.maxMoney,
-			growth: data.serverGrowth
+			max: data.moneyMax,
+			growth: data.serverGrowth,
+			gainPerHack: ns.hackAnalyze(hostname),
+			estGainPerHack: estimateHackPercentAtMinSecurity(logger, data, ns.hackAnalyze(hostname))
 		},
 		time: {
-			hack: data.hackTime,
-			grow: data.growTime,
-			weaken: data.weakenTime
-		},
-		gainPerHack: ns.hackAnalyze(hostname)
+			hack: ns.getHackTime(hostname),
+			grow: ns.getGrowTime(hostname),
+			weaken: ns.getWeakenTime(hostname)
+		}
 	}
 
 	logger.debug(() => `Server ${hostname}: Level=${result.neededLevel}, Ports=${result.requiredPorts}, RAM=${result.ram.max}GB`);
@@ -180,3 +184,47 @@ function deployHackScripts(ns, logger, hostname) {
 	}
 	return result;
 } // end deployHackScripts
+
+/**
+ * Estimates the hack percentage as if the server was at its minimum
+ * security level, based on the current hack percentage.
+ * WARNING: Assumes that all other factors (player skill relative to
+ * required skill, multipliers) remain constant.
+ *
+ * @param {Handler} logger for logging and error handling
+ * @param {Server} server Target server
+ * @param {number} currentHackPercent The currently measured or estimated hack percentage (0 to 1).
+ * @returns {number} Estimated percentage (0 to 1) at minimum security, or 0 on errors.
+ */
+function estimateHackPercentAtMinSecurity(logger, server, currentHackPercent) {
+	// If the current percentage is already 0 or negative, it will also be 0 at min security.
+	if (currentHackPercent <= 0) {
+		return 0;
+	}
+
+	try {
+		const currentSecurityLevel = server.hackDifficulty;
+		const minSecurityLevel = server.minDifficulty;
+
+		// If current security is already at minimum or below, nothing changes.
+		// Also protects against division by zero or negative denominator if currentSecurity >= 100.
+		if (currentSecurityLevel <= minSecurityLevel || currentSecurityLevel >= 100) {
+			// Clamp the current value just to be safe, in case it was > 1
+			return Math.max(0, Math.min(1, currentHackPercent));
+		}
+
+		// Calculate the scaling factor based on the security level difference
+		const securityRatio = (100 - minSecurityLevel) / (100 - currentSecurityLevel);
+
+		// Apply the factor to the current percentage
+		let estimatedPercent = currentHackPercent * securityRatio;
+
+		// Ensure the result is in the valid range [0, 1]
+		estimatedPercent = Math.max(0, Math.min(1, estimatedPercent));
+
+		return estimatedPercent;
+
+	} catch (e) {
+		logger.error(`Could not estimate hack percent at min security for ${server.id}: ${e}`);
+	}
+} // end estimateHackPercentAtMinSecurity
