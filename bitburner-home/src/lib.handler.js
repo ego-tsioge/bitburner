@@ -13,7 +13,7 @@ export class Handler {
 	#ns;
 	/** @type {string} */
 	#name;
-	/** @type {'debug'|'info'|'warn'|'error'} */
+	/** @type {'debug'|'info'} */
 	#level;
 	/** @type {string|undefined} */
 	#nextModule;
@@ -42,9 +42,26 @@ export class Handler {
 			.replace(/^mod\./, '')    // Remove "mod." prefix
 			.replace(/\.js$/, '');    // Remove ".js" suffix
 
-		this.#level = options.level || 'info';
-		this.#nextModule = options.nextModule || 'basis.js';
-		this.#testMode = options.testMode || false;
+		// Flags definieren und parsen
+		const flags = ns.flags([
+			['debug', false],
+			['test', false],
+			['testMode', false],
+			['nextModule', null],
+			['validation', false]
+		]);
+
+		// --- START: Validation Check & Early Exit ---
+		if (flags.validation) {
+			ns.print(`INFO: [${this.#name}] Validation mode detected. End script.`);
+			ns.exit();
+		}
+		// --- ENDE: Validation Check & Early Exit ---
+
+		// Priorität: 1. Kommandozeile, 2. options Parameter, 3. Defaults
+		this.#level = flags.debug ? 'debug' : (options.level || 'info');
+		this.#testMode = flags.test || flags.testMode || options.testMode || false;
+		this.#nextModule = flags.nextModule || options.nextModule || 'basis.js';
 
 		// Initialize performance metrics
 		this.#metrics = {
@@ -57,10 +74,16 @@ export class Handler {
 		// Activate debug mode if needed
 		if (this.#level === 'debug') {
 			Settings.setItem('wasDebug', true);
+			ns.clearLog();
 			ns.ui.openTail();
 			ns.ui.resizeTail(1600, 600);
 			ns.ui.moveTail(50, 50);
 			this.debug('Debug mode activated');  // Zusätzliche Info im Log
+		}
+
+		// Log testMode if active
+		if (this.#testMode) {
+			this.debug('Test mode activated');
 		}
 	}
 
@@ -70,6 +93,7 @@ export class Handler {
 	 * @returns {Promise<void>}
 	 */
 	async perform(moduleFunction) {
+
 		try {
 			this.ns.disableLog('ALL');
 			// Capture metrics at start
