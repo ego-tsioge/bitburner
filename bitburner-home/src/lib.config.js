@@ -7,8 +7,10 @@
  * Publicly accessible version of Settings defaults
  */
 export const Defaults = {
+	/** Prefix for all localStorage keys */
+	storagePrefix: 'egoBB_',
 	/** Reserved RAM on the home server in GB */
-	reservedHomeRam: 8,
+	reservedHomeRam: 16,
 	/** Default target server for the hack cycle */
 	target: 'n00dles',
 	/** Default key for BotNet in localStorage */
@@ -25,8 +27,8 @@ export const Defaults = {
 	cycleSpacing: 100,
 	/** Debug status across script boundaries */
 	wasDebug: false,
-	/** Prefix for all localStorage keys */
-	storagePrefix: 'egoBB_'
+	/** coordinator script and fallback for handler*/
+	coordinatorScript: 'src/mod.coordinator.js'
 };
 
 Object.freeze(Defaults);  // Make defaults immutable
@@ -65,8 +67,7 @@ Object.freeze(operatorScripts);
 
 
 /**
- * Central settings and configuration
- * Manages persistent settings in localStorage with defaults
+ * Manages settings in localStorage with defaults
  */
 export class Settings {
 	/**
@@ -91,14 +92,6 @@ export class Settings {
 			return Defaults.target;
 		}
 		return value;
-	}
-
-	/**
-	 * Sets the current hack target
-	 * @param {string} hostname - Hostname of the target server
-	 */
-	static set target(hostname) {
-		this.setItem('target', hostname);
 	}
 
 	/**
@@ -181,6 +174,18 @@ export class Settings {
 		const value = loadFromStorage(Defaults.storagePrefix + 'wasDebug');
 		if (value == null) {
 			return Defaults.wasDebug;
+		}
+		return value;
+	}
+
+	/**
+	 * Debug status across script boundaries
+	 * @returns {boolean} Debug status
+	 */
+	static get coordinatorScript() {
+		const value = loadFromStorage(Defaults.storagePrefix + 'coordinatorScript');
+		if (value == null) {
+			return Defaults.coordinatorScript;
 		}
 		return value;
 	}
