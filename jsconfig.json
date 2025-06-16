@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+        "target": "es2022",		// Modern genug für alle Features die wir brauchen
+        "module": "es6",		// Bitburner nutzt ES6-Module
+        "checkJs": true,		// Hilft uns, potenzielle Probleme zu finden
+		"baseUrl": "./bitburner-home",	// entspicht dem Home-server in BB
+		"paths": {
+			"/types/*": [
+				"../types/*"
+			],
+			"/src/*": [
+				"./src/*"
+			],
+		},
+	},
+}

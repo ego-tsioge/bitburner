@@ -1,51 +1,6 @@
 /** @ts-check */
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
 
-
-/**
- * Default values for settings
- * Publicly accessible version of Settings defaults
- */
-export const Defaults = {
-	/** Prefix for all localStorage keys */
-	storagePrefix: 'egoBB_',
-	/** Reserved RAM on the home server in GB */
-	reservedHomeRam: 16,
-	/** Default target server for the hack cycle */
-	target: 'n00dles',
-	/** Default key for BotNet in localStorage */
-	botnetKey: 'botnet',
-	/** Default key for Scheduled Threads in localStorage */
-	schedKey: 'scheduledThreads',
-	/** Default key for the network map in localStorage */
-	mapKey: 'network_map',
-	/** Default key for the delay during module transitions */
-	spawnDelay: 0,
-	/** Time between operations in the HWGW cycle */
-	operationSpacing: 100,
-	/** Time between HWGW cycles */
-	cycleSpacing: 100,
-	/** Debug status across script boundaries */
-	wasDebug: false,
-	/** coordinator script and fallback for handler*/
-	coordinatorScript: 'src/mod.coordinator.js'
-};
-
-Object.freeze(Defaults);  // Make defaults immutable
-
-/**
- * Module states as enum
- * Central definition of all possible states
- */
-export const ModuleStates = {
-	/** Preparation phase - Server is being brought to optimal values */
-	PREP: 'prep',
-	/** HWGW phase - Server is optimal, hack cycle is running */
-	HWGW: 'hwgw'
-};
-
-Object.freeze(ModuleStates);  // Make states immutable
-
 /**
  * Set of port crackers available in the game
  * @type {string[]}
@@ -58,27 +13,28 @@ export const portHackerSet = [
 	'SQLInject.exe'
 ];
 
-Object.freeze(portHackerSet);  // Make hackers immutable
-
-/** Die Standard-Operatoren die auf jeden Bot deployed werden */
+/** Our standard operators that will be deployed on every bot */
 export const operatorScripts = ['src/bin.hack.js', 'src/bin.grow.js', 'src/bin.weaken.js'];
 
-Object.freeze(operatorScripts);
-
-
 /**
- * Manages settings in localStorage with defaults
+ * Manages settings in localStorage with some defaults
  */
 export class Settings {
+
+	/** Prefix for all localStorage keys */
+	static storagePrefix = 'egoBB_';
+	/** Default key for BotNet in localStorage */
+	static botnetKey = 'botnet';
+
+	// ------- getter section -------
 	/**
 	 * Reserved RAM on the home server
+	 * Default: 16GB
 	 * @returns {number} RAM in GB
 	 */
 	static get reservedHomeRam() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'reservedHomeRam');
-		if (value == null) {
-			return Defaults.reservedHomeRam;
-		}
+		const value = loadFromStorage('reservedHomeRam');
+		if (value == null) { return 16; } // Default: 16GB
 		return value;
 	}
 
@@ -87,166 +43,55 @@ export class Settings {
 	 * @returns {string} Hostname of the current target
 	 */
 	static get target() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'target');
-		if (value == null) {
-			return Defaults.target;
-		}
+		const value = loadFromStorage('target');
+		if (value == null) { return 'n00dles'; } // Default: n00dles
 		return value;
 	}
 
 	/**
-	 * Key to identify Botnet in localStorage
-	 * @returns {string} Key
-	 */
-	static get botnetKey() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'botnetKey');
-		if (value == null) {
-			return Defaults.botnetKey;
-		}
-		return value;
-	}
-
-	/**
-	 * Key to identify Scheduled Threads in localStorage
-	 * @returns {string} Key
-	 */
-	static get schedKey() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'schedKey');
-		if (value == null) {
-			return Defaults.schedKey;
-		}
-		return value;
-	}
-
-	/**
-	 * Key to identify the network map in localStorage
-	 * @returns {string} Key
-	 */
-	static get mapKey() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'mapKey');
-		if (value == null) {
-			return Defaults.mapKey;
-		}
-		return value;
-	}
-
-	/**
-	 * Delay during module transitions
-	 * @returns {number} Delay in ms
-	 */
-	static get spawnDelay() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'spawnDelay');
-		if (value == null) {
-			return Defaults.spawnDelay;
-		}
-		return value;
-	}
-
-	/**
-	 * Time between operations in the HWGW cycle
+	 * Time between operations *inside* Batching-cycle
 	 * @returns {number} Time in ms
 	 */
 	static get operationSpacing() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'operationSpacing');
-		if (value == null) {
-			return Defaults.operationSpacing;
-		}
+		const value = loadFromStorage('operationSpacing');
+		if (value == null) { return 40 }	// default: 40
 		return value;
 	}
 
 	/**
-	 * Time between HWGW cycles
+	 * reaction time between Batching-cycles
 	 * @returns {number} Time in ms
 	 */
 	static get cycleSpacing() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'cycleSpacing');
-		if (value == null) {
-			return Defaults.cycleSpacing;
-		}
+		const value = loadFromStorage('cycleSpacing');
+		if (value == null) { return 200 }	// default: 200
 		return value;
 	}
 
-	/**
-	 * Debug status across script boundaries
-	 * @returns {boolean} Debug status
-	 */
-	static get wasDebug() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'wasDebug');
-		if (value == null) {
-			return Defaults.wasDebug;
-		}
-		return value;
-	}
+	// ------- end of getter section -------
 
-	/**
-	 * Debug status across script boundaries
-	 * @returns {boolean} Debug status
-	 */
-	static get coordinatorScript() {
-		const value = loadFromStorage(Defaults.storagePrefix + 'coordinatorScript');
-		if (value == null) {
-			return Defaults.coordinatorScript;
-		}
-		return value;
-	}
-
-	/**
-	 * Defines getter/setter for a key
-	 * @param {string} key Settings key
-	 * @param {any} value initial value
-	 */
-	static setItem(key, value) {
-		saveToStorage(Defaults.storagePrefix + key, value);
-		if (!this.hasOwnProperty(key)) {
-			Object.defineProperty(this, key, {
-				get() {
-					return loadFromStorage(Defaults.storagePrefix + key);
-				},
-				set(value) {
-					saveToStorage(Defaults.storagePrefix + key, value);
-				}
-			});
-		}
-	}
-
-	/**
-	 * Loads a value from settings
-	 * @param {string} key Settings key
-	 * @returns {any} Loaded value
-	 */
-	static loadItem(key) {
-		return loadFromStorage(Defaults.storagePrefix + key);
-	}
-
-	/**
-	 * Resets values to default
-	 * @param {string} [key] Optional: Specific key
-	 */
-	static reset(key) {
-		if (key) {
-			localStorage.removeItem(Defaults.storagePrefix + key);
-		} else {
-			Object.keys(Defaults).forEach(k =>
-				localStorage.removeItem(Defaults.storagePrefix + k)
-			);
-		}
-	}
 }
 
 /**
- * Loads data from localStorage
+ * Loads data from localStorage with type preservation
+ *
+ * Die Funktion versucht die Daten in folgender Reihenfolge zu laden:
+ * 1. Wrapper-Objekt (mit type und data Properties) -> wird in den originalen Typ konvertiert
+ * 2. Normales JSON -> wird direkt zurückgegeben
+ * 3. Rohe Daten (wenn JSON-Parsing fehlschlägt) -> werden unverändert zurückgegeben
+ *
  * @param {string} key - Key for localStorage
- * @returns {any} Loaded data or null
+ * @returns {any} Loaded data (or null if key doesn't exist)
  */
 export function loadFromStorage(key) {
-	const raw = localStorage.getItem(key);
+	const raw = localStorage.getItem(Settings.storagePrefix + key);
 	if (!raw) return null;
 
 	try {
 		const wrapper = JSON.parse(raw);
 		// Check if it's a wrapper object
 		if (wrapper.hasOwnProperty('type') && wrapper.hasOwnProperty('data')) {
-			return restoreFromStorage(wrapper.data, wrapper.type);
+			return convertToType(wrapper.type, wrapper.data);
 		}
 		// If not, return the value directly
 		return wrapper;
@@ -257,13 +102,20 @@ export function loadFromStorage(key) {
 
 /**
  * Saves data in localStorage with type preservation
+ *
+ * Schwächen:
+ * - Die Funktion verlässt sich auf JSON.stringify, welches bestimmte Datentypen
+ *   nicht serialisieren kann oder sie verändert:
+ *   - undefined wird in Objekten weggelassen, in Arrays zu null.
+ *   - Zirkuläre Referenzen (Objekte, die direkt oder indirekt auf sich selbst verweisen) werfen einen Fehler.
+ * - Map und Set werden nur auf der obersten ebene geprüft, nicht in verschachtelten Objekten.
  * @param {string} key - Key for localStorage
  * @param {any} value - Value to store
  */
 export function saveToStorage(key, value) {
 	// Remove null or undefined directly
 	if (value === null || value === undefined) {
-		localStorage.removeItem(key);
+		localStorage.removeItem(Settings.storagePrefix + key);
 		return;
 	}
 
@@ -274,7 +126,7 @@ export function saveToStorage(key, value) {
 			value instanceof Set ? Array.from(value) :
 				value
 	};
-	localStorage.setItem(key, JSON.stringify(wrapper));
+	localStorage.setItem(Settings.storagePrefix + key, JSON.stringify(wrapper));
 }
 
 /**
@@ -283,7 +135,7 @@ export function saveToStorage(key, value) {
  * @param {string} type - The original data type
  * @returns {any} Converted data
  */
-function restoreFromStorage(data, type) {
+function convertToType(type, data) {
 	switch (type) {
 		case 'Number':
 		case 'String':
@@ -299,98 +151,5 @@ function restoreFromStorage(data, type) {
 			return new Map(data);
 		default:
 			return data;
-	}
-}
-
-/**
- * The RunInfo class keeps track of when a function was last executed and
- * at what interval it should be executed.
- */
-export class RunInfo {
-	/** @type {number} */
-	static #DEFAULT_INTERVAL = 1000;
-
-	/**
-	 * Get the default interval for operations
-	 * @returns {number} Default interval in milliseconds
-	 */
-	static get DEFAULT_INTERVAL() {
-		return this.#DEFAULT_INTERVAL;
-	}
-
-	#defaultFunctionMap = new Map([
-		['spider', {
-			lastRun: Date.now() - 5 * 60 * 1000,  // 5 minutes ago
-			interval: 100                          // Every 100ms
-		}],
-		['hacknet', {
-			lastRun: Date.now() - 5 * 60 * 1000,  // 5 minutes ago
-			interval: 5 * 60 * 1000               // Every 5 minutes
-		}]
-	]);
-	#functionMap;
-
-	constructor() {
-		this.#functionMap = loadFromStorage(Defaults.storagePrefix + 'runInfo') || this.#defaultFunctionMap;
-	}
-
-	/**
-	 * Returns the name of the operation that should be executed next
-	 * @returns {string|null} Name of the next operation or null if none is due
-	 */
-	getNextOperation() {
-		let nextOp = null;
-		let earliestTime = Infinity;
-
-		for (const [funcName, info] of this.#functionMap) {
-			const nextRunTime = info.lastRun + info.interval;
-			if (nextRunTime < earliestTime) {
-				earliestTime = nextRunTime;
-				nextOp = funcName;
-			}
-		}
-
-		// Only return if the time has actually expired
-		if (earliestTime <= Date.now()) {
-			return nextOp;
-		}
-		return null;
-	}
-
-	/**
-	 * Updates the timestamp of the last execution
-	 * Creates a new operation mode if the name doesn't exist yet
-	 * @param {string} functionName - Name of the function/operation mode
-	 * @param {number} [interval] - Optional interval in milliseconds (default: DEFAULT_INTERVAL)
-	 * @throws {Error} If a negative interval is passed
-	 */
-	updateLastRun(functionName, interval) {
-		if (interval !== undefined && interval <= 0) {
-			throw new Error(`Interval must be positive, was: ${interval}`);
-		}
-
-		const info = this.#functionMap.get(functionName) || { interval: RunInfo.#DEFAULT_INTERVAL };
-		info.lastRun = Date.now();
-		if (interval !== undefined) {
-			info.interval = interval;
-		}
-		this.#functionMap.set(functionName, info);
-		this.save();
-	}
-
-	/**
-	 * Returns the information for a function
-	 * @param {string} functionName - Name of the function
-	 * @returns {{lastRun: number, interval: number}|null} Info object or null
-	 */
-	getInfo(functionName) {
-		return this.#functionMap.get(functionName) || null;
-	}
-
-	/**
-	 * Saves the current state in storage
-	 */
-	save() {
-		saveToStorage(Defaults.storagePrefix + 'runInfo', this.#functionMap);
 	}
 }

@@ -1,22 +1,13 @@
-# Node
-node_modules/
-package-lock.json
-
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *.cursorrules
-jsconfig.json
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-npm-debug.log*
 
 # Bitburner specific
 # Falls Sie temporäre Dateien oder Backups haben möchten
@@ -27,7 +18,18 @@ npm-debug.log*
 *.json.gz
 
 # Types
-types/
+#types/
 
 # Test directory
 bitburner-home/test/
+
+# Bitburner directories to ignore
+bitburner-home/*
+!bitburner-home/src/
+!bitburner-home/util/
+!bitburner-home/git-init.js
+!bitburner-home/start.js
+
+# Ignore specific directories
+bitburner-home/alter-kram-mal-anschauen/
+
