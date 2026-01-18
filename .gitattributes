@@ -1,0 +1,4 @@
+# Externe Dateien vom Bitburner Spiel-Repository - NICHT bearbeiten
+# Quelle: https://github.com/bitburner-official/bitburner-src/blob/stable/src/ScriptEditor/NetscriptDefinitions.d.ts
+# zu Version 2.8.1 von Bitburner
+types/NetscriptDefinitions.d.ts -diff -merge

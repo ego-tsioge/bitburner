@@ -1,8 +1,16 @@
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
 
+import { throwError } from './lib.helper.js';
+
 const React = globalThis["React"];
-if (!React || !React.useState || !React.useEffect || !React.createElement) {
-	throw new Error("React oder notwendige Hooks (useState, useEffect, createElement) nicht gefunden.");
+// Prüfung ob React vom Bitburner-Spiel bereitgestellt wird und alle benötigten Funktionen/Hooks vorhanden sind.
+// React Hooks (useState, useEffect) wurden in React 16.8 (Februar 2019) eingeführt, createElement noch davor
+// Theoretisch schlägt dieser Test nie fehl, wir lassen uns überraschen
+if (React === null || React === undefined ||
+	typeof React.useState !== 'function' ||
+	typeof React.useEffect !== 'function' ||
+	typeof React.createElement !== 'function') {
+	throwError("React oder notwendige Hooks (useState, useEffect, createElement) nicht gefunden.", 'INITIALIZATION_ERROR');
 }
 const { useState, useEffect, createElement } = React;
 

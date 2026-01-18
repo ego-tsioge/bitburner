@@ -49,7 +49,6 @@ const buffer = new RingBuffer(10);
 ```
  */
 
-/** @ts-check */
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
 
 // ======= globals ==============
@@ -66,7 +65,20 @@ const ALIASES = {
 	init: 'run src/lib.helper.js --init', // Init (nochmal, zB nach änderungen)
 	mon: 'run util/simpleMon.js'
 };
+// ======= ERROR Helper ==============
 
+/**
+ * Wirft einen Error mit gegebenem Code
+ * @param {string} message - Fehlermeldung
+ * @param {string} errorCode - Error-Code zur Kategorisierung (z.B. 'VALIDATION_ERROR', 'NOT_FOUND_ERROR')
+ * @throws {Error & {code: string}} Error mit code-Property
+ */
+export function throwError(message, errorCode) {
+	const error = new Error(message);
+	// @ts-ignore - code Property für Error-Categorisierung
+	error.code = errorCode;
+	throw error;
+}
 // ======= PROGRESS BAR FUNCTIONS ==============
 
 /**
@@ -79,6 +91,18 @@ const ALIASES = {
  * @returns {Promise<void>}
  */
 export async function waitWithProgress(ns, milliseconds, label = 'Warte ...', barWidth = 40, keepBar = false) {
+	if (typeof milliseconds !== 'number' || milliseconds <= 0) {
+		throwError('milliseconds muss größer als 0 sein', 'VALIDATION_ERROR');
+	}
+	if (typeof label !== 'string') {
+		throwError('label muss ein String sein', 'VALIDATION_ERROR');
+	}
+	if (typeof barWidth !== 'number' || !Number.isInteger(barWidth) || barWidth <= 7) {
+		throwError('barWidth muss größer gleich 7 sein', 'VALIDATION_ERROR');
+	}
+	if (typeof keepBar !== 'boolean') {
+		throwError('keepBar muss ein boolean sein', 'VALIDATION_ERROR');
+	}
 	const endTime = performance.now() + milliseconds;	// allererste aktion, zielzeit berechnen
 	// --- Konfiguration (Standardwerte) ---
 	const completeChar = '█';
@@ -204,9 +228,14 @@ export function crawler(ns) {
  * @returns {void}
  */
 export function runTerminalCMD(command) {
+	if (typeof command !== 'string') {
+		throwError('command muss ein String sein', 'VALIDATION_ERROR');
+	}
 	const doc = globalThis['document'];
 	const terminalInput = doc.getElementById('terminal-input');
-	if (!terminalInput) return;
+	// doc.getElementById('terminal-input') gibt null zurück, wenn das Element
+	// nicht gefunden wird, sonst das Element.
+	if (terminalInput === null) return;
 
 	// @ts-ignore - wg INPUT-Typ
 	terminalInput.value = command;
@@ -261,8 +290,8 @@ export class RingBuffer {
 	 * @param {number} size - Größe des Buffers
 	 */
 	constructor(size) {
-		if (!size || size <= 0 || !Number.isInteger(size)) {
-			throw new Error(`RingBuffer benötigt eine positive, ganzzahlige Größe (statt ${size} )`);
+		if (typeof size !== 'number' || !Number.isInteger(size) || size <= 0) {
+			throwError(`RingBuffer benötigt eine positive, ganzzahlige Größe (statt ${size} )`, 'VALIDATION_ERROR');
 		}
 		this.size = size;
 		/** @type {Array<T | null>} */
@@ -342,7 +371,7 @@ export async function optimizeServer(ns, target, forceRun = false) {
 	ns.disableLog('ALL');
 	// Nur die kritischsten Checks
 	if (!ns.serverExists(target)) {
-		throw new Error(`Server '${target}' existiert nicht`);
+		throwError(`Server '${target}' existiert nicht`, 'NOT_FOUND_ERROR');
 	}
 
 	let minSec = ns.getServerMinSecurityLevel(target);
@@ -510,82 +539,6 @@ export async function optimizeServer(ns, target, forceRun = false) {
 } // end function optimizeServer
 
 // ======= main-part ==============
-/**
-* @param {NS} ns
+/*
+* wurde erstmal gelöscht
 */
-export async function main(ns) {
-	const flags = ns.flags(options);
-	if (flags.reset || flags.killall) {
-		await killAll(ns);
-		ns.exit()
-	}
-
-	if (flags.init) {
-		init(ns);
-		ns.exit()
-	}
-
-	// setting
-	ns.disableLog('ALL');
-	ns.clearLog();
-	ns.ui.openTail();
-
-	ns.killall();
-
-	const server = crawler(ns);
-	const PIDs = [];
-
-	const serverArray = [...server];
-	const targetArray = serverArray.filter(serverName => ns.hasRootAccess(serverName) && ns.getServerMaxMoney(serverName) > 0 && serverName !== 'home');
-	targetArray.sort((a, b) => ns.getServerRequiredHackingLevel(a) - ns.getServerRequiredHackingLevel(b));
-	const totalRam = serverArray.reduce((sum, server) => sum + ns.getServerMaxRam(server), 0);
-
-	ns.print(`${targetArray.length} ziele gefunden ${ns.formatRam(totalRam)} RAM verfügbar \nstarte 7spam-Atack `);
-
-	const minute = 60 * 1000
-	let s = 0; let inc = false;
-	while (s < targetArray.length) {
-		// halte alte prozesse am leben
-		for (let i = 0; i < s; i++) {
-			// prüfe ob der prozess noch läuft
-			if (!ns.isRunning(PIDs[i])) {
-				PIDs[i] = ns.run('util/7spam-Atack.js', 1, targetArray[i])
-			}
-		}
-		const usedRam = Math.min(totalRam, (serverArray.reduce((sum, server) => sum + ns.getServerUsedRam(server), 0) + 1024));
-
-		let ratio = usedRam / totalRam;
-		if (ratio > 0.90) {
-			// warte auf zustandsänderung
-			await waitWithProgress(ns, minute / 3, `server sin etwas voll (${(ratio * 100).toFixed(2)}%), warten wir mal\n`);
-		} else {
-			// befüllung nicht zu hoch, starte 7spam
-
-			const ziel = targetArray[s];
-			ns.print(`ziel: ${ziel} s: ${s}`)
-			try {
-				PIDs[s] = ns.run('util/7spam-Atack.js', 1, ziel)
-			} catch (e) {
-				ns.print(`scheißfehler: pid ${PIDs[s]} ziel: ${ziel} s: ${s}`)
-				ns.print(e)
-			}
-
-			let log = ns.getScriptLogs().slice(-20);
-
-			ns.clearLog();
-			if (PIDs[s]) {
-				inc = true;
-				ns.print(log.join('\n') + (s % 5 == 0 ? s % 10 == 0 ? ';' : ',' : '.'));
-			} else {
-				ns.print(log.join('\n'))
-			}
-			if ((ratio) > 0.42 || s > 42) {
-				await waitWithProgress(ns, minute * Math.ceil(s / 13), `warte zwischen starts (${(ratio * 100).toFixed(2)}%)`)
-			}
-		}
-		if (inc) { s++; inc = false; }
-	}
-
-}
-
-

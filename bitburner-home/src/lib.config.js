@@ -1,5 +1,6 @@
-/** @ts-check */
 /** @typedef {import("/types/NetscriptDefinitions").NS} NS */
+
+import { throwError } from './lib.helper.js';
 
 /**
  * Set of port crackers available in the game
@@ -34,7 +35,7 @@ export class Settings {
 	 */
 	static get reservedHomeRam() {
 		const value = loadFromStorage('reservedHomeRam');
-		if (value == null) { return 16; } // Default: 16GB
+		if (value === null) { return 16; } // Default: 16GB
 		return value;
 	}
 
@@ -44,7 +45,7 @@ export class Settings {
 	 */
 	static get target() {
 		const value = loadFromStorage('target');
-		if (value == null) { return 'n00dles'; } // Default: n00dles
+		if (value === null) { return 'n00dles'; } // Default: n00dles
 		return value;
 	}
 
@@ -54,7 +55,7 @@ export class Settings {
 	 */
 	static get operationSpacing() {
 		const value = loadFromStorage('operationSpacing');
-		if (value == null) { return 40 }	// default: 40
+		if (value === null) { return 40 }	// default: 40
 		return value;
 	}
 
@@ -64,7 +65,7 @@ export class Settings {
 	 */
 	static get cycleSpacing() {
 		const value = loadFromStorage('cycleSpacing');
-		if (value == null) { return 200 }	// default: 200
+		if (value === null) { return 200 }	// default: 200
 		return value;
 	}
 
@@ -84,8 +85,12 @@ export class Settings {
  * @returns {any} Loaded data (or null if key doesn't exist)
  */
 export function loadFromStorage(key) {
+	if (typeof key !== 'string') {
+		throwError('key muss ein String sein', 'VALIDATION_ERROR');
+	}
+
 	const raw = localStorage.getItem(Settings.storagePrefix + key);
-	if (!raw) return null;
+	if (raw === null) return null;
 
 	try {
 		const wrapper = JSON.parse(raw);
@@ -113,6 +118,10 @@ export function loadFromStorage(key) {
  * @param {any} value - Value to store
  */
 export function saveToStorage(key, value) {
+	if (typeof key !== 'string') {
+		throwError('key muss ein String sein', 'VALIDATION_ERROR');
+	}
+
 	// Remove null or undefined directly
 	if (value === null || value === undefined) {
 		localStorage.removeItem(Settings.storagePrefix + key);
