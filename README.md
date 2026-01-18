@@ -22,7 +22,7 @@ Wenn du das Spiel selbst mal ausprobieren möchtest, klicke doch einfach auf ein
 
 ## Struktur
 
-um den Homeserver in Bitburner etwas übersichtlich zu halten (immerhin kammen durch den spielfortschritt manchmal dateien dazu), werden die meisten scripte in Unterordnern abgelegt:
+um den Homeserver in Bitburner etwas übersichtlich zu halten (immerhin kamen durch den spielfortschritt manchmal dateien dazu), werden die meisten scripte in Unterordnern abgelegt:
 
 ```
 bitburner-home/     # entspricht dem Home-Verzeichnis im Spiel
