@@ -26,6 +26,8 @@ bitburner-home/*
 !bitburner-home/util/
 !bitburner-home/git-init.js
 !bitburner-home/start.js
+!bitburner-home/n00dleHacker.js
+!bitburner-home/n00dle-init.js
 
 # Sonstiges
 plan_*.md
