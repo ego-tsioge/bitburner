@@ -1,3 +1,5 @@
+/** @typedef {import("/types/customNS").NS} NS */
+
 /**
  * @fileoverview Hilfsfunktionen für Bitburner Scripts
  *
@@ -6,18 +8,19 @@
  * 1. Fortschrittsanzeige - waitWithProgress(ns, milliseconds, label, barWidth, keepBar)
  *    - Zeigt einen animierten Fortschrittsbalken im Log-Fenster
  *
- * 2. Notfall-Server-Management - killAll(ns)
+ * 2. Notfall-Server-Management - killAll(ns) TODO:entfernen (Ramverbrauch durch crawler)
  *    - Beendet alle Skripte auf allen erreichbaren Servern
  *    - Prüft Root-Zugriff vor der Ausführung
  *    - Zeigt Statusmeldungen für jeden Server
  *
- * 3. Server-Discovery - crawler(ns)
+ * 3. Server-Discovery - crawler(ns) TODO: entfernen (ramverbrauch durch ns.scan())
  *    - Findet alle erreichbaren Server im Netzwerk
  *
- * 4. Terminal-Integration - runTerminalCMD(command)
- *    - Führt Terminal-Befehle programmatisch aus
- *    - Simuliert Benutzereingaben
- *    - Unterstützt Alias-Ausführung
+ * 4. Terminal-Integration
+ *    - runTerminalCMD(command) - Führt Terminal-Befehle programmatisch aus
+ *    - getLastTerminalResponse(command) - Extrahiert die Antwort auf den letzten Befehl
+ *    - waitForTerminalResponse(ns, command, options) - Wartet auf stabile Antwort
+ *    - execTerminalCMD(ns, command, options) - Führt Befehl aus und gibt Antwort zurück
  *
  * 5. Alias-Konfiguration - init(ns)
  *    - Konfiguriert vordefinierte Terminal-Aliase
@@ -36,20 +39,18 @@
  *
  * Verwendung:
 ```js
-import { waitWithProgress, crawler, RingBuffer } from './lib.helper.js';
+import { waitWithProgress, RingBuffer, execTerminalCMD } from './lib.helper.js';
 
 // Fortschrittsbalken
 await waitWithProgress(ns, 5000, 'Lade...');
 
-// Server finden
-const servers = crawler(ns);
+// Terminal-Befehl ausführen und Antwort lesen
+const response = await execTerminalCMD(ns, 'analyze');
 
 // Ring Buffer
 const buffer = new RingBuffer(10);
 ```
  */
-
-/** @typedef {import("/types/NetscriptDefinitions").NS} NS */
 
 // ======= globals ==============
 /** @type {[string, string | number | boolean | string[]][]} */
@@ -65,6 +66,124 @@ const ALIASES = {
 	init: 'run src/lib.helper.js --init', // Init (nochmal, zB nach änderungen)
 	mon: 'run util/simpleMon.js'
 };
+
+const SUFFIXES = ['', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
+
+/**
+ * Formatiert eine nicht-negative Zahl in einen String fester Breite (6 Zeichen)
+ * mit spezieller Präfix-Logik für große Zahlen. Negative Zahlen oder ungültige
+ * Eingaben ergeben "  N/A ".
+ * Beispiele:
+ *   123       => "   123"
+ *   12345     => "12k345"
+ *   123456    => "123k45"
+ *   1234567   => "1m2345"
+ *   -123      => "  N/A "
+ *   null      => "  N/A "
+ * @param {number | null | undefined} num - Die zu formatierende Zahl.
+ * @returns {string} Der formatierte 6-Zeichen-String.
+ */
+export function formatNumberFixedWidth(num) {
+	const targetWidth = 6;
+	const naString = "N/A".padStart(targetWidth); // "  N/A "
+
+	// Ungültige oder negative Eingaben => N/A
+	if (num === null || num === undefined || isNaN(num) || num < 0) {
+		return naString;
+	}
+
+	// Fall 1: Kleine Zahlen (< 10000)
+	if (num < 10000) {
+		return String(num).padStart(targetWidth, ' ');
+	}
+
+	// Fall 2: Große Zahlen (>= 10000)
+	let suffixIndex = 0;
+	let tempNum = num;
+
+	// Finde den passenden Suffix-Index basierend auf der Größenordnung
+	suffixIndex = Math.min(SUFFIXES.length - 1, Math.floor(Math.log10(num) / 3));
+
+	const divisor = Math.pow(1000, suffixIndex);
+	//const suffix = '\x1b[31m' + SUFFIXES[suffixIndex] + '\x1b[0m'; // farbe?
+	const suffix = SUFFIXES[suffixIndex];
+
+	const intPart = Math.floor(num / divisor);
+	const remainder = num % divisor;
+	const intPartStr = String(intPart);
+	const intPartLen = intPartStr.length;
+
+	// Verbleibende Zeichen für Nachkommastellen (nach Suffix)
+	const fractionDigitsNeeded = targetWidth - intPartLen - 1; // 1 für den Suffix
+
+	// Fallback, falls der Integer-Teil + Suffix schon zu lang sind
+	if (fractionDigitsNeeded < 0) {
+		let fallbackStr = intPartStr + suffix;
+		if (fallbackStr.length > targetWidth) {
+			// Extremfall: z.B. 123456k -> zu lang -> Fehler anzeigen
+			return '#'.padStart(targetWidth, '#');
+		}
+	}
+
+	// Berechne den "Nachkomma"-Teil basierend auf dem Anteil am Divisor
+	let fractionPart = 0;
+	let fractionStr = '';
+	if (fractionDigitsNeeded > 0) {
+		// Berechne den Anteil des Rests am Divisor und skaliere ihn
+		const scaledFraction = (remainder / divisor) * Math.pow(10, fractionDigitsNeeded);
+		fractionPart = Math.floor(scaledFraction);
+		// Fülle den Nachkomma-Teil mit führenden Nullen auf die benötigte Länge auf
+		fractionStr = String(fractionPart).padStart(fractionDigitsNeeded, '0');
+	}
+
+	const finalStr = intPartStr + suffix + fractionStr;
+
+	return finalStr;
+}
+
+/**
+ * Formatiert eine nicht-negative Zahl lesbar mit Suffix (k, M, …) und
+ * optionaler Nachkommastelle. Gleiche API wie formatNumberFixedWidth,
+ * gleiche feste Breite (6 Zeichen) für Tabellen.
+ * Beispiele:
+ *   123       => "   123"
+ *   12345     => " 12.3k"
+ *   1234567   => "  1.2M"
+ *   -123      => "  N/A "
+ * @param {number | null | undefined} num - Die zu formatierende Zahl.
+ * @returns {string} Der formatierte 6-Zeichen-String.
+ */
+export function formatNumberShort(num) {
+	const targetWidth = 6;
+	const naString = 'N/A'.padStart(targetWidth);
+
+	if (num === null || num === undefined || isNaN(num) || num < 0) {
+		return naString;
+	}
+
+	if (num < 1000) {
+		return String(Math.round(num)).padStart(targetWidth, ' ');
+	}
+
+	const suffixIndex = Math.min(SUFFIXES.length - 1, Math.floor(Math.log10(num) / 3));
+	const divisor = Math.pow(1000, suffixIndex);
+	const suffix = SUFFIXES[suffixIndex];
+	const scaled = num / divisor;
+
+	let s;
+	if (scaled >= 100) {
+		s = String(Math.round(scaled)) + suffix;
+	} else if (scaled >= 10) {
+		s = scaled.toFixed(1) + suffix;
+	} else {
+		s = scaled.toFixed(2) + suffix;
+	}
+
+	return s.padStart(targetWidth, ' ');
+}
+
+
+
 // ======= ERROR Helper ==============
 
 /**
@@ -166,59 +285,35 @@ export async function waitWithProgress(ns, milliseconds, label = 'Warte ...', ba
  * WARNUNG: Dies versucht auch, Skripte auf 'home' zu beenden!
  * @param {NS} ns Netscript API
  */
-export async function killAll(ns) {
+// export async function killAll(ns) {
 
-	ns.tprint("INFO: Starte Netzwerksuche nach allen Servern...");
-	const servers = crawler(ns);
+// 	ns.tprint("INFO: Starte Netzwerksuche nach allen Servern...");
+// 	const servers = crawler(ns);
 
-	ns.tprint(`INFO: ${servers.length} Server gefunden. Starte killall...`);
+// 	ns.tprint(`INFO: ${servers.length} Server gefunden. Starte killall...`);
 
-	// Gehe durch alle gefundenen Server
-	for (const server of servers) {
-		// Prüfen, ob wir Root-Zugriff haben (killall funktioniert nur dann)
-		if (ns.hasRootAccess(server)) {
-			// Führe killall auf dem Server aus
-			const scriptsKilled = ns.killall(server, true);
+// 	// Gehe durch alle gefundenen Server
+// 	for (const server of servers) {
+// 		// Prüfen, ob wir Root-Zugriff haben (killall funktioniert nur dann)
+// 		if (ns.hasRootAccess(server)) {
+// 			// Führe killall auf dem Server aus
+// 			const scriptsKilled = ns.killall(server, true);
 
-			if (scriptsKilled) {
-				ns.tprint(`SUCCESS: Skripte auf ${server} beendet.`);
-			} else {
-				// Optional: Meldung, wenn keine Skripte liefen (außer auf 'home')
-				if (server !== 'home') {
-					ns.print(`INFO: Keine laufenden Skripte auf ${server} gefunden.`);
-				}
-			}
-		}
-		// Ein Päuschen fürs Spiel
-		await ns.sleep(10);
-	}
+// 			if (scriptsKilled) {
+// 				ns.tprint(`SUCCESS: Skripte auf ${server} beendet.`);
+// 			} else {
+// 				// Optional: Meldung, wenn keine Skripte liefen (außer auf 'home')
+// 				if (server !== 'home') {
+// 					ns.print(`INFO: Keine laufenden Skripte auf ${server} gefunden.`);
+// 				}
+// 			}
+// 		}
+// 		// Ein Päuschen fürs Spiel
+// 		await ns.sleep(10);
+// 	}
 
-	ns.tprint("INFO: killAllSimple abgeschlossen.");
-}
-
-// ======= Crawler ==============
-
-/**
- * Crawler-Skript, das alle Server in der Netzwerk-Hierarchie auflistet.
- * @param {NS} ns - Netscript API
- * @returns {string[]} - Liste aller Server
- */
-export function crawler(ns) {
-	const visited = new Set();	// merkzettel, wo wir schon waren (bei set kann man nicht ausversehen 2gleiche entitäten reinlegen)
-	const heap = ['home'];		// der haufen der abgearbeitet werden soll, inkl. startpunkt
-
-	while (heap.length > 0) {	// solange noch was auf dem haufen liegt ...
-		const hostname = heap.pop();	// ... nehmen wir eines davon runter
-
-		if (!visited.has(hostname)) {	// wenn wir es noch nicht kennen ...
-			visited.add(hostname);		// ... wird es gespeichert
-
-			const neighbors = ns.scan(hostname);	// dann fragen wir noch welche nachbarn es kennt
-			heap.push(...neighbors);				// und legen diese auf den haufen (damit wir keinen vergessen)
-		}
-	} // end while (haufen abgearbeitet)
-	return Array.from(visited);
-}
+// 	ns.tprint("INFO: killAllSimple abgeschlossen.");
+// }
 
 // ======= run terminal commands ==============
 
@@ -245,6 +340,143 @@ export function runTerminalCMD(command) {
 		key: 'Enter',
 		preventDefault: () => null,
 	});
+}
+
+// ======= read terminal output ==============
+
+/**
+ * Liest den Inhalt des Bitburner-Terminals als Array von Zeilen.
+ * @returns {string[] | null} Zeilen-Array oder null wenn Terminal-Element nicht vorhanden
+ */
+export function getTerminalLines() {
+	const doc = globalThis['document'];
+	const terminal = doc.getElementById('terminal');
+	if (terminal === null) return null;
+	return terminal.innerText.split('\n');
+}
+
+/**
+ * Extrahiert die Antwort auf den letzten Aufruf eines Befehls im Terminal.
+ * Sucht rückwärts nach der Prompt-Zeile "> command" und sammelt alle
+ * Ausgabezeilen bis zum nächsten Prompt.
+ *
+ * @param {string} command - Der Befehl, dessen Antwort gesucht wird
+ * @returns {string | null} Antwort-Text oder null wenn Terminal/Befehl nicht gefunden
+ */
+export function getLastTerminalResponse(command) {
+	if (typeof command !== 'string') {
+		throwError('command muss ein String sein', 'VALIDATION_ERROR');
+	}
+	const lines = getTerminalLines();
+	if (lines === null) return null;
+
+	const reversed = [...lines].reverse();
+	const commandIndex = reversed.findIndex(line => line.includes(`> ${command}`));
+	if (commandIndex === -1) return null;
+
+	const response = [];
+	for (let i = commandIndex - 1; i >= 0; i--) {
+		if (reversed[i].includes('>')) break;
+		response.unshift(reversed[i]);
+	}
+	return response.join('\n');
+}
+
+/**
+ * Wartet bis die Terminal-Antwort auf einen Befehl stabil ist, d.h. sich
+ * über mehrere Polls hinweg nicht mehr ändert. Nützlich für Befehle deren
+ * Ausgabe asynchron im DOM erscheint (hack, grow, weaken, analyze, …).
+ *
+ * @param {NS} ns - Netscript API (für ns.sleep)
+ * @param {string} command - Der Befehl, auf dessen Antwort gewartet wird
+ * @param {object} [options]
+ * @param {number} [options.stableThreshold=5] - Anzahl identischer Polls bis "stabil"
+ * @param {number} [options.pollInterval=100] - Millisekunden zwischen Polls
+ * @param {number} [options.timeout=30000] - Max. Wartezeit in ms (0 = kein Limit)
+ * @returns {Promise<string | null>} Stabile Antwort oder null bei Timeout / fehlendem Terminal
+ */
+export async function waitForTerminalResponse(ns, command, options = {}) {
+	const {
+		stableThreshold = 5,
+		pollInterval = 100,
+		timeout = 30000,
+	} = options;
+
+	let lastResponse = '';
+	let stableCount = 0;
+	const startTime = performance.now();
+
+	while (stableCount < stableThreshold) {
+		if (timeout > 0 && (performance.now() - startTime) > timeout) {
+			return null;
+		}
+		const current = getLastTerminalResponse(command);
+		if (current !== null && current === lastResponse) {
+			stableCount++;
+		} else {
+			stableCount = 0;
+			lastResponse = current ?? '';
+		}
+		await ns.sleep(pollInterval);
+	}
+	return lastResponse;
+}
+
+/**
+ * Führt einen Terminal-Befehl aus und wartet auf dessen stabile Antwort.
+ * Kombiniert {@link runTerminalCMD} mit {@link waitForTerminalResponse},
+ * aber mit Schutz gegen Stale-Responses: Vor dem Befehl wird die aktuelle
+ * Zeilenzahl gemerkt. Erst wenn neue Zeilen erscheinen UND die Antwort
+ * nicht-leer und stabil ist, wird sie zurückgegeben.
+ *
+ * @param {NS} ns - Netscript API (für ns.sleep)
+ * @param {string} command - Auszuführender Terminal-Befehl
+ * @param {object} [options]
+ * @param {number} [options.stableThreshold=5] - Anzahl identischer Polls bis "stabil"
+ * @param {number} [options.pollInterval=100] - Millisekunden zwischen Polls
+ * @param {number} [options.timeout=30000] - Max. Wartezeit in ms (0 = kein Limit)
+ * @returns {Promise<string | null>} Antwort-Text oder null bei Timeout / fehlendem Terminal
+ */
+export async function execTerminalCMD(ns, command, options = {}) {
+	const linesBefore = getTerminalLines()?.length ?? 0;
+	runTerminalCMD(command);
+
+	const {
+		stableThreshold = 5,
+		pollInterval = 100,
+		timeout = 30000,
+	} = options;
+
+	let lastResponse = '';
+	let stableCount = 0;
+	let newContentDetected = false;
+	const startTime = performance.now();
+
+	while (stableCount < stableThreshold) {
+		if (timeout > 0 && (performance.now() - startTime) > timeout) {
+			return null;
+		}
+
+		if (!newContentDetected) {
+			const currentLines = getTerminalLines()?.length ?? 0;
+			if (currentLines > linesBefore) {
+				newContentDetected = true;
+			} else {
+				await ns.sleep(pollInterval);
+				continue;
+			}
+		}
+
+		const current = getLastTerminalResponse(command);
+		if (current !== null && current.length > 0 && current === lastResponse) {
+			stableCount++;
+		} else {
+			stableCount = 0;
+			lastResponse = current ?? '';
+		}
+		await ns.sleep(pollInterval);
+	}
+	return lastResponse;
 }
 
 // ======= init ==============
@@ -280,7 +512,7 @@ export function init(ns) {
  * @class RingBuffer
  * @property {number} size - Die maximale Anzahl von Elementen die gespeichert werden können
  * @property {Array<T | null>} buffer - Der interne Array-Speicher für die Elemente
- * @property {number} currentIndex - Der aktuelle Index für das nächste Element
+ * @property {number} currentIndex - (aka nextWriteIndex) Zeigt auf die nächste schreibposition
  * @property {number} count - Die aktuelle Anzahl gespeicherter Elemente
  */
 
@@ -291,7 +523,7 @@ export class RingBuffer {
 	 */
 	constructor(size) {
 		if (typeof size !== 'number' || !Number.isInteger(size) || size <= 0) {
-			throwError(`RingBuffer benötigt eine positive, ganzzahlige Größe (statt ${size} )`, 'VALIDATION_ERROR');
+			throw new Error(`RingBuffer benötigt eine positive, ganzzahlige Größe (statt ${size} )`);
 		}
 		this.size = size;
 		/** @type {Array<T | null>} */
@@ -305,37 +537,56 @@ export class RingBuffer {
 	 * @param {T} element - Das hinzuzufügende Element
 	 * @returns {T} Das hinzugefügte Element
 	 */
-	add(element) {
+	enqueue(element) {
 		this.buffer[this.currentIndex] = element;
 		this.currentIndex = (this.currentIndex + 1) % this.size;
-		if (this.count < this.size) {
-			this.count++;
-		}
+		if (this.count < this.size) this.count++;
 		return element;
 	}
 
 	/**
-	 * Gibt das aktuelle Element zurück (das zuletzt hinzugefügte)
-	 * @returns {T | null} Das aktuelle Element oder null wenn leer
+	 * Gibt das älteste Element zurück (wie "front()" in Standard-Queues).
+	 * @returns {T | null} Das älteste Element oder null wenn leer
 	 */
-	current() {
-		if (this.count === 0) {
-			return null;
-		}
-		const lastIndex = (this.currentIndex - 1 + this.size) % this.size;
-		return this.buffer[lastIndex];
+	peek() {
+		if (this.count === 0) return null;
+		return this.buffer[(this.currentIndex - this.count + this.size) % this.size];
 	}
 
 	/**
-	 * Gibt das Element vor dem aktuellen zurück
+	 * Dreht den Index um `steps` Schritte weiter
+	 * @param {number} [steps=1] - Wie viele Schritte weiter (Standard: 1)
+	 * @returns {T | null} Das "neue" älteste Element, nach der Drehung
+	 */
+	rotate(steps = 1) {
+		if (this.count === 0) return null;
+		if (this.count < this.size) {
+			throw new Error(`Rotation nicht möglich, Buffer ist nicht voll (${this.count} < ${this.size})`);
+		}
+		if (typeof steps !== 'number' || !Number.isInteger(steps)) {
+			throw new Error(`steps soll positiv und ganzzahlig sein (statt [${steps}] typeof [${typeof steps}])`);
+		}
+
+		const raw = this.currentIndex + steps
+		this.currentIndex = ((raw % this.size) + this.size) % this.size;	// vermeidet negativen wert
+
+		return this.buffer[(this.currentIndex - this.count + this.size) % this.size];
+	}
+
+	/**
+	 * Gibt das `steps`-te Element vor dem ältesten zurück.
 	 * @param {number} [steps=1] - Wie viele Schritte zurück (Standard: 1)
 	 * @returns {T | null} Das vorherige Element oder null wenn nicht verfügbar
 	 */
-	previous(steps = 1) {
-		if (steps < 1 || steps > this.count) {
-			return null;
+	peekBack(steps = 1) {
+		if (typeof steps !== 'number' || !Number.isInteger(steps)) {
+			throw new Error(`steps soll positiv und ganzzahlig sein (statt [${steps}] typeof [${typeof steps}])`);
 		}
-		const index = (this.currentIndex - steps + this.size) % this.size;
+		if (steps < 1 || steps > this.count) {
+			throw new Error(`steps soll positiv und ganzzahlig sein (statt ${steps} )`);
+		}
+		const raw = this.currentIndex - this.count - steps;
+		const index = ((raw % this.size) + this.size) % this.size;	// vermeidet negativen wert
 		return this.buffer[index];
 	}
 
@@ -357,188 +608,112 @@ export class RingBuffer {
 	}
 }
 
-// ======= optimizeServer ==============
+// ======= DOM-Klick-Helfer (UI-Automatisierung) ==============
+
 /**
- * Optimiert einen Server für Hacking (min Security, max Geld)
- * @param {NS} ns: Netscript API
- * @param {string} target Der zu optimierende Server
- * @param {boolean} forceRun Wenn true --> Spezialmodus: es wird für die restliche (freie) ramkapazität grows/weakens gestartet und danach
- * NICHT gewartet. das soll beim testen (also in bestimmten anwendungsfällen) schonmal etwas den server optimieren - während noch gewartet
- * wird dass der test? fertig wird
- * @returns {Promise<void>}
+ * Findet ein DOM-Element anhand seines sichtbaren Text-Inhalts.
+ * @param {string} text - Gesuchter Text
+ * @param {string} [tag='button'] - HTML-Tag
+ * @param {boolean} [exact=false] - Exakter Match statt contains
+ * @returns {HTMLElement | null}
  */
-export async function optimizeServer(ns, target, forceRun = false) {
-	ns.disableLog('ALL');
-	// Nur die kritischsten Checks
-	if (!ns.serverExists(target)) {
-		throwError(`Server '${target}' existiert nicht`, 'NOT_FOUND_ERROR');
+export function findByText(text, tag = 'button', exact = false) {
+	const doc = globalThis['document'];
+	const elements = doc.querySelectorAll(tag);
+	for (const el of elements) {
+		const content = el.textContent?.trim() ?? '';
+		if (exact ? content === text : content.includes(text)) {
+			return /** @type {HTMLElement} */ (el);
+		}
 	}
+	return null;
+}
 
-	let minSec = ns.getServerMinSecurityLevel(target);
-	let actualSec = ns.getServerSecurityLevel(target);
-	let maxMoney = ns.getServerMaxMoney(target);
-	let actualMoney = ns.getServerMoneyAvailable(target);
-	let secDiff = actualSec - minSec;
-	let moneyDiff = maxMoney - actualMoney;
-
-	/** @type {Array<{pid: number, threads: number}>} merke die gestarteten weaken-threads */
-	let pidWeaken = []
-	/** @type {Array<{pid: number, threads: number}>} merke die gestarteten grow-threads */
-	let pidGrow = []
-	/** @type {{value: number, name: string}} merke die eta für weaken */
-	let etaWeaken = { value: 0, name: "Weaken" }
-	/** @type {{value: number, name: string}} merke die eta für grow */
-	let etaGrow = { value: 0, name: "Grow" }
-	/** @type {number} ein gimmick - um im Log zu sehen, wann weaken übersprungen wird */
-	let growBatchNumber = 0;
-
-	/** @type {number} RAM pro Thread /Slot */
-	const SCRIPT_RAM_COST = 1.75;
-	/** @type {number} Multiplier für Weaken-Dauer */
-	const WEAKEN_TIME_MULTIPLIER = 4;
-	/** @type {number} Multiplier für Grow-Dauer */
-	const GROW_TIME_MULTIPLIER = 3.2;
-	/** @type {number} Sicherheitspuffer für Job-Completion-Checks; doppelt bei Grow damit es vor Weaken endet bei Timing-Kollisionen */
-	const TIMING_BUFFER_MS = 20;
-
-	while (actualSec > minSec || actualMoney < maxMoney || forceRun) {
-		const botnet = crawler(ns).filter(server => ns.hasRootAccess(server))
-			.sort((a, b) => ns.getServerMaxRam(b) - ns.getServerMaxRam(a));
-
-		// zähle die verfügbaren slots durch
-		let freeSlots = botnet.reduce((acc, server) => acc + Math.floor((ns.getServerMaxRam(server) - ns.getServerUsedRam(server)) / SCRIPT_RAM_COST), 0);
-		let maxSlots = freeSlots;
-
-		// schreibe die aktuelle hackzeit auf
-		let hackTime = ns.getHackTime(target);
-
-		// prüfe, was noch läuft
-		let runGrows = pidGrow.reduce((acc, batch) => acc + (ns.getRunningScript(batch.pid) ? batch.threads : 0), 0);
-		let runWeaken = pidWeaken.reduce((acc, batch) => acc + (ns.getRunningScript(batch.pid) ? batch.threads : 0), 0);
-
-		// erweitere maxThreads um die benutzten Slots und berechne die ETA
-		if (runWeaken > 0) {
-			maxSlots += runWeaken;
+/**
+ * Klickt ein Element an (React-Handler oder native .click()).
+ * @param {HTMLElement} element
+ * @returns {boolean}
+ */
+export function clickElement(element) {
+	if (!element) return false;
+	try {
+		const reactKey = Object.keys(element).find(k => k.startsWith('__reactProps') || k.startsWith('__reactEvents'));
+		if (reactKey && element[reactKey]?.onClick) {
+			element[reactKey].onClick({ isTrusted: true });
 		} else {
-			// berechne die ETA für weaken, gebe 40ms puffer um zu vermeiden das grow noch läuft wenn wir später nachsehen
-			etaWeaken.value = performance.now() + hackTime * WEAKEN_TIME_MULTIPLIER + TIMING_BUFFER_MS * 2;
-			// Runde auf nächste 100ms auf; braucht aber mindestens 20ms extra Puffer, damit die Threads noch starten können
-			etaWeaken.value = Math.ceil((etaWeaken.value + TIMING_BUFFER_MS) / 100) * 100;
-			pidWeaken = [];
+			element.click();
 		}
-		if (runGrows > 0) {
-			maxSlots += runGrows;
-		} else {
-			// berechne die ETA für grow, gebe 80ms puffer (2*40) um zu vermeiden das grow nach weaken fertig wird
-			etaGrow.value = performance.now() + hackTime * GROW_TIME_MULTIPLIER + TIMING_BUFFER_MS * 3;
-			// Runde auf nächste 100ms auf; braucht aber mindestens 20ms extra Puffer, damit die Threads noch starten können
-			etaGrow.value = Math.ceil((etaGrow.value + TIMING_BUFFER_MS) / 100) * 100;
-			pidGrow = [];
-		}
-
-		// berechne grow- und weaken-threads
-		let weakThreads = Math.ceil(maxSlots / 10);
-		let growThreads = maxSlots - weakThreads;
-
-		// status abfragen
-		maxMoney = ns.getServerMaxMoney(target);
-		actualMoney = ns.getServerMoneyAvailable(target);
-
-		// starte die grows
-		if (runGrows === 0 && moneyDiff > 0) {	// wenn keine grows mehr laufen und das geld noch nicht voll ist, ...
-			growBatchNumber++;	// ein gimmick um zu sehen wann weaken übersprungen wird
-			let remainingThreads = growThreads;
-			for (const bot of botnet) {		// vorwärts iterieren, damit grow weniger fragmantiert wird
-				if (remainingThreads <= 0) break;
-				remainingThreads = executeOnBot(ns, bot, remainingThreads, 'src/bin.grow.js', target, hackTime * GROW_TIME_MULTIPLIER, etaGrow.value - TIMING_BUFFER_MS * 3, pidGrow);
-			}
-			ns.print(`${growBatchNumber}: starte ${growThreads} grows, r: ${remainingThreads}; ETA in ${(getWaitTime(etaGrow.value) / 1000).toFixed(2)}s Sec:${secDiff.toFixed(2)} $:${moneyDiff.toFixed(2)}`);
-		}
-
-		// starte die weakens
-		if (runWeaken === 0) {	// wenn keine weakens laufen, ...
-			let remainingThreads = weakThreads;
-			for (let i = botnet.length - 1; i >= 0; i--) {	// rückwärts iterieren, weil weaken lücken füllen soll
-				if (remainingThreads <= 0) break;
-				remainingThreads = executeOnBot(ns, botnet[i], remainingThreads, 'src/bin.weaken.js', target, hackTime * WEAKEN_TIME_MULTIPLIER, etaWeaken.value - TIMING_BUFFER_MS * 2, pidWeaken);
-			}
-			ns.print(`${growBatchNumber}: starte ${weakThreads} weaken, r: ${remainingThreads}; ETA in ${(getWaitTime(etaWeaken.value) / 1000).toFixed(2)}s Sec:${secDiff.toFixed(2)} $:${moneyDiff.toFixed(2)}`);
-		}
-
-		if (forceRun) {
-			// erzwungenen lauf hier beenden, sonst endlosschleife
-			break;
-		}
-		// normaler lauf
-
-		// warte auf nächstes ETA
-		let nextEta = etaWeaken.value < etaGrow.value ? etaWeaken : etaGrow;	// wähle das nächste eta
-		if (nextEta.value < performance.now()) {			// wenn das eta bereits abgelaufen ist, ...
-			nextEta = etaWeaken.value > etaGrow.value ? etaWeaken : etaGrow;	// wähle das andere eta
-		}
-		let waitTime = getWaitTime(nextEta.value);	// berechne die wartezeit
-		if (waitTime > 0) {
-			await waitWithProgress(ns, waitTime, `Warte auf ${nextEta.name}`);
-		} else {
-			await waitWithProgress(ns, 3000, 'fehler: ETAs abgelaufen ...');
-		}
-
-		// werte aktualisieren für nächste iteration
-		maxMoney = ns.getServerMaxMoney(target);
-		actualMoney = ns.getServerMoneyAvailable(target);
-		moneyDiff = maxMoney - actualMoney;
-		if (moneyDiff === 0) {
-			// geld ist fertig, warte auf die letzten weakens
-			await waitWithProgress(ns, etaWeaken.value - performance.now(), 'Warte auf letztes Weaken');
-		}
-
-		minSec = ns.getServerMinSecurityLevel(target);
-		actualSec = ns.getServerSecurityLevel(target);
-		secDiff = actualSec - minSec;
-	} // end while (server nicht optimal)
-
-	if (!forceRun) {	// aufräumarbeiten nur machen wenn kein forceRun
-		// wenn wir hier ankomen ist zwar schon der server optimal, aber es können
-		// noch operatoren laufen, die wir abwarten müssen
-		let waitTime = Math.max(etaWeaken.value, etaGrow.value) - performance.now();
-		if (waitTime > 0) {
-			await waitWithProgress(ns, waitTime, 'Warte auf letztes ETA');
-		}
+		return true;
+	} catch {
+		return false;
 	}
+}
 
-	function getWaitTime(eta) {
-		let waitTime = eta - performance.now();
-		return Math.max(waitTime, 0);	// vermeide negative wartezeiten
-	}
+/**
+ * Navigiert zu einem Sidebar-Tab (z.B. "City", "Terminal").
+ * @param {string} tabName
+ * @returns {boolean}
+ */
+export function navigateTo(tabName) {
+	const label = findByText(tabName, 'p', true);
+	if (!label) return false;
+	const listItem = label.closest('[role="button"]');
+	if (listItem) return clickElement(/** @type {HTMLElement} */ (listItem));
+	return clickElement(label);
+}
 
-	/**
-	 * Hilfsfunktion um threads zu starten (duplizierter code bei weaken und grow)
-	 * @param {NS} ns - Netscript API
-	 * @param {string} bot - Servername
-	 * @param {number} threads - Threads, die gestartet werden müssen
-	 * @param {string} scriptPath - Pfad zum Skript
-	 * @param {string} target - Zielserver
-	 * @param {number} duration - dauer der operation (grow/weaken)
-	 * @param {number} eta - ETA für den Hack
-	 * @param {Array<{pid: number, threads: number}>} pidArray - Array, in das die PIDs der gestarteten Threads gespeichert werden
-	 * @returns {number} - verbleibende Threads, die gestartet werden müssen
-	 */
-	function executeOnBot(ns, bot, threads, scriptPath, target, duration, eta, pidArray) {
-		const slots = Math.floor((ns.getServerMaxRam(bot) - ns.getServerUsedRam(bot)) / SCRIPT_RAM_COST);
-		if (slots <= 0) return threads; // keine slots verfügbar
+/**
+ * Navigiert zu City → Alpha Enterprises (das "T" in der ASCII-Karte).
+ * @param {NS} ns - für ns.sleep
+ * @param {number} [delayMs=500]
+ * @returns {Promise<boolean>}
+ */
+export async function goToAlphaEnterprises(ns, delayMs = 500) {
+	const doc = globalThis['document'];
+	navigateTo('City');
+	await ns.sleep(delayMs);
+	const marker = doc.querySelector('span[aria-label="Alpha Enterprises"]');
+	if (!marker) return false;
+	clickElement(/** @type {HTMLElement} */ (marker));
+	await ns.sleep(delayMs);
+	return true;
+}
 
-		const threadsForServer = Math.min(threads, slots);
-		const pid = ns.exec(scriptPath, bot, threadsForServer, target, duration, eta);
-		if (pid > 0) {
-			pidArray.push({ pid: pid, threads: threadsForServer });
-			return threads - threadsForServer; // verbleibende threads
-		}
-		return threads; // exec fehlgeschlagen
-	}
+/**
+ * Kauft den TOR-Router via UI-Klick.
+ * City → Alpha Enterprises → "Purchase TOR router"
+ * @param {NS} ns
+ * @param {number} [delayMs=500]
+ * @returns {Promise<boolean>}
+ */
+export async function buyTorRouter(ns, delayMs = 500) {
+	if (!await goToAlphaEnterprises(ns, delayMs)) return false;
+	const btn = /** @type {HTMLButtonElement | null} */ (findByText('Purchase TOR router', 'button'));
+	if (!btn || btn.disabled) return false;
+	return clickElement(btn);
+}
 
-} // end function optimizeServer
+/**
+ * Kauft ein Home-RAM-Upgrade via UI-Klick.
+ * City → Alpha Enterprises → "Upgrade 'home' RAM"
+ * @param {NS} ns
+ * @param {number} [delayMs=500]
+ * @returns {Promise<boolean>}
+ */
+export async function clickRamUpgrade(ns, delayMs = 500) {
+	if (!await goToAlphaEnterprises(ns, delayMs)) return false;
+	const btn = /** @type {HTMLButtonElement | null} */ (findByText("Upgrade 'home' RAM", 'button'));
+	if (!btn || btn.disabled) return false;
+	return clickElement(btn);
+}
 
-// ======= main-part ==============
-/*
-* wurde erstmal gelöscht
-*/
+/**
+ * Navigiert zurück zum Terminal.
+ * @param {NS} ns
+ * @param {number} [delayMs=500]
+ */
+export async function goToTerminal(ns, delayMs = 500) {
+	navigateTo('Terminal');
+	await ns.sleep(delayMs);
+}
+

@@ -1,6 +1,4 @@
-/** @typedef {import("/types/NetscriptDefinitions").NS} NS */
-
-import { throwError } from './lib.helper.js';
+/** @typedef {import("/types/customNS").NS} NS */
 
 /**
  * GROW Operation für einen Server.
@@ -9,10 +7,10 @@ import { throwError } from './lib.helper.js';
 export async function main(ns) {
 	// args[0] - target (Server-Name)
 	if (ns.args[0] === undefined || ns.args[0] === null) {
-		throwError('Zielserver fehlt', 'VALIDATION_ERROR');
+		throw new Error('Zielserver fehlt');
 	}
 	if (typeof ns.args[0] !== 'string') {
-		throwError('Zielserver muss ein String sein', 'VALIDATION_ERROR');
+		throw new Error('Zielserver muss ein String sein');
 	}
 
 	const target = String(ns.args[0]);
@@ -20,13 +18,13 @@ export async function main(ns) {
 	// args[1] - operationTime
 	const operationTime = ns.args[1] !== undefined && ns.args[1] !== null ? Number(ns.args[1]) : undefined;
 	if (operationTime !== undefined && operationTime <= 0) {
-		throwError('operationTime muss größer als 0 sein', 'VALIDATION_ERROR');
+		throw new Error('operationTime muss größer als 0 sein');
 	}
 
 	// args[2] - endTime
 	const endTime = ns.args[2] !== undefined && ns.args[2] !== null ? Number(ns.args[2]) : undefined;
 	if (endTime !== undefined && endTime <= 0) {
-		throwError('endTime muss größer als 0 sein', 'VALIDATION_ERROR');
+		throw new Error('endTime muss größer als 0 sein');
 	}
 
 	// Wenn Zeiten angegeben, berechne Verzögerung
