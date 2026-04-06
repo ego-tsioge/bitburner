@@ -52,5 +52,5 @@ export async function main(ns) {
 	}
 
 	ns.tprint('\n✓ Starte n00dleHacker.js ...');
-	ns.spawn('n00dleHacker.js');
+	ns.spawn('n00dleHacker.js', { spawnDelay: 1000 });
 }

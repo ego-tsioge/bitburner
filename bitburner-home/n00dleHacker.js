@@ -1,5 +1,5 @@
 /** @typedef {import("/types/customNS").NS} NS */
-import { execTerminalCMD, runTerminalCMD, getTerminalLines, getLastTerminalResponse, RingBuffer, buyTorRouter, clickRamUpgrade, goToTerminal } from '/src/lib.helper.js';
+import { execTerminalCMD, runTerminalCMD, getTerminalLines, getLastTerminalResponse, RingBuffer, findByText, clickElement, buyTorRouter, clickRamUpgrade, goToAlphaEnterprises, goToTerminal } from '/src/lib.helper.js';
 import { crawler, getServerData, makeBot } from '/src/mod.crawler.js';
 import { operatorScripts } from '/src/lib.config.js';
 
@@ -55,26 +55,10 @@ export async function main(ns) {
 		ns.print(`   ${h}: ${Math.floor((s.maxRam - s.ramUsed) / 1.70)} Slots`);
 	}
 
-	// ═══════ Phase 1b: Darkweb-Check ═══════
-	runTerminalCMD('home');
-	await ns.sleep(500);
-	const bought = await tryBuyDarkwebPrograms(ns);
-
-	if (bought) {
-		// Neue Cracker → Re-Crawl, neue Server rooten
-		const recheck = crawler(ns);
-		for (const hostname of recheck) {
-			if (botnet.includes(hostname)) continue;
-			const data = getServerData(ns, hostname);
-			if (!data.security.root) makeBot(ns, data);
-			if (data.security.root && data.ram.max > 0 && hostname !== 'home') {
-				ns.scp(operatorScripts, hostname, 'home');
-				botnet.push(hostname);
-				ns.print(`   🤖 Neuer Bot: ${hostname}`);
-			}
-		}
-		ns.print(`   🤖 Botnet jetzt: ${botnet.length} Bots`);
-	}
+	// ═══════ Phase 1b: Initiale Upgrades (TOR + Cracker + RAM) ═══════
+	/** @type {{ hasTor: boolean, programs: {name:string, price:number, owned:boolean}[], ramCost: number, allCrackersBought: boolean }} */
+	const upgradeCache = { hasTor: false, programs: [], ramCost: 0, allCrackersBought: false };
+	await tryUpgrades(ns, target, botnet, upgradeCache);
 
 	// ═══════ Phase 2: Terminal verbinden ═══════
 	ns.print('\n═══════════════════════════════════════════');
@@ -220,10 +204,9 @@ export async function main(ns) {
 			ns.print(`   Flugzeit-Δ: ${fmtTime(flightDiff)} (erwartet ${fmtTime(hackTimeApi)}, tatsächlich ${fmtTime(actualFlight)})`);
 		}
 
-		// Schritt 5: Upgrade-Check (Cracker + RAM + Botnet)
+		// Schritt 5: Upgrade-Check (TOR + Cracker + RAM + Botnet)
 		const slotsBefore = countSlots(ns, botnet);
-		await tryUpgradeBotnet(ns, target, botnet);
-		await tryRamUpgrade(ns);
+		await tryUpgrades(ns, target, botnet, upgradeCache);
 		const slotsAfter = countSlots(ns, botnet);
 		if (slotsAfter > slotsBefore) {
 			ns.print(`\n🤖 Botnet: ${botnet.length} Bots, ${slotsBefore} → ${slotsAfter} Slots`);
@@ -490,58 +473,146 @@ function countSlots(ns, botnet) {
 }
 
 // ═══════════════════════════════════════════
-//  Darkweb-Shopping
+//  Upgrade-System (TOR + Cracker + RAM)
 // ═══════════════════════════════════════════
 
 /**
- * Prüft via `buy -l` ob TOR-Router vorhanden ist.
- * Wenn ja, kauft automatisch alle bezahlbaren Programme.
- * Erwartet, dass Terminal auf home steht.
+ * Einheitlicher Upgrade-Check mit Cache.
+ * Navigiert nur zu Alpha Enterprises / Terminal wenn nötig.
+ * Merkt sich Preise und was schon gekauft wurde.
  *
  * @param {NS} ns
- * @returns {Promise<boolean>} true wenn mindestens ein Programm gekauft wurde
+ * @param {string} target
+ * @param {string[]} botnet
+ * @param {{ hasTor: boolean, programs: {name:string, price:number, owned:boolean}[], ramCost: number, allCrackersBought: boolean }} cache
  */
-async function tryBuyDarkwebPrograms(ns) {
-	let listing = await execTerminalCMD(ns, 'buy -l', { timeout: 10000 });
-	if (!listing || !listing.includes('.exe')) {
-		const money = ns.getPlayer().money;
+async function tryUpgrades(ns, target, botnet, cache) {
+	const money = ns.getPlayer().money;
+
+	// Alle Cracker gekauft? Dann nur noch RAM checken
+	if (cache.allCrackersBought) {
+		await tryRamUpgradeFromCache(ns, cache, money);
+		return;
+	}
+
+	// ── TOR prüfen/kaufen ──
+	if (!cache.hasTor) {
 		if (money < 200000) {
 			ns.print(`   🌐 Kein TOR (braucht $200k, hast $${ns.formatNumber(money)})`);
-			return false;
+			return;
 		}
-		// TOR automatisch via DOM kaufen
-		ns.print('   🛒 Kaufe TOR-Router via UI ...');
-		const success = await buyTorRouter(ns);
-		await goToTerminal(ns);
-		if (!success) {
-			ns.print('   ❌ TOR-Kauf fehlgeschlagen');
-			return false;
-		}
-		ns.print('   ✅ TOR-Router gekauft!');
-		ns.tprint('✅ TOR-Router automatisch gekauft!');
-		// Erneut Darkweb-Liste laden
-		listing = await execTerminalCMD(ns, 'buy -l', { timeout: 10000 });
-		if (!listing || !listing.includes('.exe')) return false;
-	}
+		// Prüfe via DOM ob TOR schon da
+		await goToAlphaEnterprises(ns);
+		const torBtn = findByText('Purchase TOR router', 'button');
+		const alreadyOwned = torBtn && (torBtn.disabled || torBtn.textContent?.includes('Purchased'));
 
-	const money = ns.getPlayer().money;
-	let purchased = false;
-
-	const programs = parseDarkwebListing(listing);
-	const unbought = programs.filter(p => !p.owned && p.isPortCracker);
-	if (unbought.length === 0) return false;
-
-	ns.print('\n🌐 Darkweb-Check:');
-	for (const prog of unbought) {
-		if (prog.price <= money) {
-			await execTerminalCMD(ns, `buy ${prog.name}`, { timeout: 10000 });
-			ns.print(`   🛒 ${prog.name} gekauft`);
-			purchased = true;
+		if (alreadyOwned) {
+			cache.hasTor = true;
 		} else {
-			ns.print(`   💸 ${prog.name}: $${ns.formatNumber(prog.price)}`);
+			ns.print('   🛒 Kaufe TOR-Router ...');
+			if (torBtn && clickElement(torBtn)) {
+				cache.hasTor = true;
+				ns.print('   ✅ TOR-Router gekauft!');
+				ns.tprint('✅ TOR-Router automatisch gekauft!');
+			} else {
+				await goToTerminal(ns);
+				return;
+			}
+		}
+
+		// RAM-Preis gleich mitlesen (wir sind schon auf der Seite)
+		readRamPrice(cache);
+		await goToTerminal(ns);
+	}
+
+	// ── Cracker-Preise einmalig laden ──
+	if (cache.programs.length === 0) {
+		const listing = await execTerminalCMD(ns, 'buy -l', { timeout: 10000 });
+		if (listing && listing.includes('.exe')) {
+			cache.programs = parseDarkwebListing(listing)
+				.filter(p => p.isPortCracker)
+				.map(p => ({ name: p.name, price: p.price, owned: p.owned }));
 		}
 	}
-	return purchased;
+
+	// ── Bezahlbare Cracker kaufen ──
+	const unbought = cache.programs.filter(p => !p.owned);
+	if (unbought.length === 0) {
+		cache.allCrackersBought = true;
+		await tryRamUpgradeFromCache(ns, cache, money);
+		return;
+	}
+
+	const affordable = unbought.filter(p => p.price <= money);
+	if (affordable.length > 0) {
+		ns.print('\n🌐 Darkweb:');
+		for (const prog of affordable) {
+			await execTerminalCMD(ns, `buy ${prog.name}`, { timeout: 10000 });
+			prog.owned = true;
+			ns.print(`   🛒 ${prog.name} gekauft`);
+		}
+
+		// Re-Crawl nach Kauf
+		const servers = crawler(ns);
+		for (const hostname of servers) {
+			if (botnet.includes(hostname)) continue;
+			const data = getServerData(ns, hostname);
+			if (!data.security.root) makeBot(ns, data);
+			if (data.security.root && data.ram.max > 0 && hostname !== 'home') {
+				ns.scp(operatorScripts, hostname, 'home');
+				botnet.push(hostname);
+				ns.print(`   🤖 Neuer Bot: ${hostname}`);
+			}
+		}
+	}
+
+	// ── RAM-Upgrade ──
+	await tryRamUpgradeFromCache(ns, cache, money);
+}
+
+/**
+ * Liest den RAM-Upgrade-Preis vom Button-Text (wenn auf Alpha Enterprises Seite).
+ * Format: "Upgrade 'home' RAM (32.00GB -> 64.00GB) - $10.083m"
+ */
+function readRamPrice(cache) {
+	const btn = /** @type {HTMLButtonElement | null} */ (findByText("Upgrade 'home' RAM", 'button'));
+	if (!btn) { cache.ramCost = Infinity; return; }
+	if (btn.disabled) { cache.ramCost = Infinity; return; }
+
+	const text = btn.textContent ?? '';
+	const m = text.match(/\$([\d.]+)([kmb]?)/i);
+	if (!m) { cache.ramCost = Infinity; return; }
+	let price = parseFloat(m[1]);
+	if (m[2] === 'k') price *= 1000;
+	else if (m[2] === 'm') price *= 1000000;
+	else if (m[2] === 'b') price *= 1000000000;
+	cache.ramCost = price;
+}
+
+/**
+ * RAM-Upgrade wenn Cache-Preis bezahlbar ist.
+ * Navigiert nur wenn wir uns den Kauf leisten können.
+ * @param {NS} ns
+ * @param {{ ramCost: number }} cache
+ * @param {number} money
+ */
+async function tryRamUpgradeFromCache(ns, cache, money) {
+	if (cache.ramCost === 0 || money < cache.ramCost) return;
+
+	const ramBefore = ns.getServerMaxRam('home');
+	ns.print(`\n💾 RAM-Upgrade ($${ns.formatNumber(cache.ramCost)}) ...`);
+	const success = await clickRamUpgrade(ns);
+
+	if (success) {
+		// Preis für nächstes Upgrade lesen (wir sind auf der Seite)
+		readRamPrice(cache);
+		await goToTerminal(ns);
+		const ramAfter = ns.getServerMaxRam('home');
+		ns.print(`   ✅ Home-RAM: ${ramBefore}GB → ${ramAfter}GB (nächstes: $${ns.formatNumber(cache.ramCost)})`);
+		ns.tprint(`✅ Home-RAM: ${ramBefore}GB → ${ramAfter}GB`);
+	} else {
+		await goToTerminal(ns);
+	}
 }
 
 /**
@@ -574,67 +645,6 @@ function parseDarkwebListing(listing) {
 		}
 	}
 	return programs;
-}
-
-/**
- * Prüft nach jeder Runde ob neue Programme/Server verfügbar sind.
- * Wenn kein TOR: bei genug Geld User auffordern.
- * Wenn TOR: Programme kaufen und Botnet erweitern.
- *
- * @param {NS} ns
- * @param {string} target
- * @param {string[]} botnet - wird in-place erweitert
- * @returns {Promise<boolean>} true wenn Botnet erweitert wurde
- */
-async function tryUpgradeBotnet(ns, target, botnet) {
-	// Warten bis Terminal frei (letzte Aktion abgeschlossen)
-	await ns.sleep(1000);
-
-	const bought = await tryBuyDarkwebPrograms(ns);
-
-	if (!bought) return false;
-
-	// Re-Crawl: neue Server rooten und ins Botnet aufnehmen
-	const servers = crawler(ns);
-	let expanded = false;
-	for (const hostname of servers) {
-		if (botnet.includes(hostname)) continue;
-		const data = getServerData(ns, hostname);
-		if (!data.security.root) makeBot(ns, data);
-		if (data.security.root && data.ram.max > 0 && hostname !== 'home') {
-			ns.scp(operatorScripts, hostname, 'home');
-			botnet.push(hostname);
-			ns.print(`   🤖 Neuer Bot: ${hostname}`);
-			expanded = true;
-		}
-	}
-
-	return expanded;
-}
-
-// ═══════════════════════════════════════════
-//  RAM-Upgrade
-// ═══════════════════════════════════════════
-
-/**
- * Versucht Home-RAM via DOM-Klick zu upgraden wenn bezahlbar.
- * Navigiert zu City → Alpha Enterprises, klickt, kehrt zum Terminal zurück.
- * @param {NS} ns
- */
-async function tryRamUpgrade(ns) {
-	const money = ns.getPlayer().money;
-	const currentRam = ns.getServerMaxRam('home');
-	const cost = currentRam * 55000;
-	if (money < cost) return;
-
-	ns.print(`\n💾 RAM-Upgrade versuch ($${ns.formatNumber(cost)}) ...`);
-	const success = await clickRamUpgrade(ns);
-	await goToTerminal(ns);
-	if (success) {
-		const newRam = ns.getServerMaxRam('home');
-		ns.print(`   ✅ Home-RAM: ${currentRam}GB → ${newRam}GB`);
-		ns.tprint(`✅ Home-RAM upgraded: ${currentRam}GB → ${newRam}GB`);
-	}
 }
 
 // ═══════════════════════════════════════════
