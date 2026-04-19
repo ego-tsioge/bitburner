@@ -7,9 +7,15 @@ import { operatorScripts } from '/src/lib.config.js';
  * Hack-Shotgun + Terminal-Optimizer Prototyp.
  *
  * Strategie:
- * - Hack-Shotgun: ns.exec() feuert bin.hack.js auf allen Bots gleichzeitig
- * - Terminal-Optimizer: grow/weaken via Terminal (~15x schneller als Script)
- *   hält den Server zwischen den Hack-Wellen optimal
+ * - Hack-Shotgun: feuert bin.hack.js mit allen Bots gleichzeitig aud das target
+ * - Kompensation: grow/weaken via Terminal (~15x schneller als Script) --> skaliert am
+ *   Anfang sehr gut auf n00dles, lohnt sich aber wohl nur die ersten 10min
+ *
+ * - INFO: kam in testläufen bei runde 500 auf ein plateu von 40k/s (pro Runde).
+ *         SBH13 verspricht ab runde 9 schon ähnliche leistung, da kommt dieses script
+ *         erst auf 14k/s.
+ *
+ * TODO: n00dleHacker
  *
  * @param {NS} ns
  */
@@ -453,8 +459,8 @@ function checkPidsLanded(ns, pids) {
 function avgTime(buf) {
 	if (buf.isEmpty()) return 15000;
 	let sum = 0;
-	for (let i = 0; i < buf.count; i++) {
-		sum += buf.buffer[i];
+	for (const value of buf) {
+		sum += value;
 	}
 	return sum / buf.count;
 }
