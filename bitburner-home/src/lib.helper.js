@@ -510,13 +510,31 @@ export function init(ns) {
  *
  * @template T
  * @class RingBuffer
- * @property {number} size - Die maximale Anzahl von Elementen die gespeichert werden können
- * @property {Array<T | null>} buffer - Der interne Array-Speicher für die Elemente
- * @property {number} currentIndex - (aka nextWriteIndex) Zeigt auf die nächste schreibposition
- * @property {number} count - Die aktuelle Anzahl gespeicherter Elemente
+ * @property {number} size - Die maximale Anzahl von Elementen die gespeichert werden können (nur lesbar)
  */
 
 export class RingBuffer {
+	/**
+	 * Die maximale Anzahl von Elementen die gespeichert werden können.
+	 * @type {number}
+	 */
+	#size;
+	/**
+	 * Der interne Array-Speicher für die Elemente.
+	 * @type {Array<T | null>}
+	 */
+	#buffer;
+	/**
+	 * (aka nextWriteIndex) Zeigt auf die nächste Schreibposition.
+	 * @type {number}
+	 */
+	#currentIndex;
+	/**
+	 * Die aktuelle Anzahl gespeicherter Elemente.
+	 * @type {number}
+	 */
+	#count;
+
 	/**
 	 * Erstellt einen neuen Ring Buffer mit fester Größe
 	 * @param {number} size - Größe des Buffers
@@ -525,11 +543,26 @@ export class RingBuffer {
 		if (typeof size !== 'number' || !Number.isInteger(size) || size <= 0) {
 			throw new Error(`RingBuffer benötigt eine positive, ganzzahlige Größe (statt ${size} )`);
 		}
-		this.size = size;
-		/** @type {Array<T | null>} */
-		this.buffer = new Array(size).fill(null);
-		this.currentIndex = 0; // Aktueller Index (wo das nächste Element eingefügt wird)
-		this.count = 0; // Anzahl der gespeicherten Elemente
+		this.#size = size;
+		this.#buffer = new Array(size).fill(null);
+		this.#currentIndex = 0;
+		this.#count = 0;
+	}
+
+	/**
+	 * Die maximale Anzahl von Elementen die gespeichert werden können (nur lesbar).
+	 * @returns {number}
+	 */
+	get size() {
+		return this.#size;
+	}
+
+	/**
+	 * Aktuelle Anzahl gespeicherter Elemente (0 bis size).
+	 * @returns {number}
+	 */
+	get count() {
+		return this.#count;
 	}
 
 	/**
@@ -538,9 +571,9 @@ export class RingBuffer {
 	 * @returns {T} Das hinzugefügte Element
 	 */
 	enqueue(element) {
-		this.buffer[this.currentIndex] = element;
-		this.currentIndex = (this.currentIndex + 1) % this.size;
-		if (this.count < this.size) this.count++;
+		this.#buffer[this.#currentIndex] = element;
+		this.#currentIndex = (this.#currentIndex + 1) % this.#size;
+		if (this.#count < this.#size) this.#count++;
 		return element;
 	}
 
@@ -549,8 +582,8 @@ export class RingBuffer {
 	 * @returns {T | null} Das älteste Element oder null wenn leer
 	 */
 	peek() {
-		if (this.count === 0) return null;
-		return this.buffer[(this.currentIndex - this.count + this.size) % this.size];
+		if (this.#count === 0) return null;
+		return this.#buffer[(this.#currentIndex - this.#count + this.#size) % this.#size];
 	}
 
 	/**
@@ -559,35 +592,49 @@ export class RingBuffer {
 	 * @returns {T | null} Das "neue" älteste Element, nach der Drehung
 	 */
 	rotate(steps = 1) {
-		if (this.count === 0) return null;
-		if (this.count < this.size) {
-			throw new Error(`Rotation nicht möglich, Buffer ist nicht voll (${this.count} < ${this.size})`);
+		if (this.#count === 0) return null;
+		if (this.#count < this.#size) {
+			throw new Error(`Rotation nicht möglich, Buffer ist nicht voll (${this.#count} < ${this.#size})`);
 		}
 		if (typeof steps !== 'number' || !Number.isInteger(steps)) {
 			throw new Error(`steps soll positiv und ganzzahlig sein (statt [${steps}] typeof [${typeof steps}])`);
 		}
 
-		const raw = this.currentIndex + steps
-		this.currentIndex = ((raw % this.size) + this.size) % this.size;	// vermeidet negativen wert
+		const raw = this.#currentIndex + steps
+		this.#currentIndex = ((raw % this.#size) + this.#size) % this.#size;	// vermeidet negativen wert
 
-		return this.buffer[(this.currentIndex - this.count + this.size) % this.size];
+		return this.#buffer[(this.#currentIndex - this.#count + this.#size) % this.#size];
 	}
 
 	/**
-	 * Gibt das `steps`-te Element vor dem ältesten zurück.
+	 * Gibt das `steps`-älteste Element aus dem ring zurück.
 	 * @param {number} [steps=1] - Wie viele Schritte zurück (Standard: 1)
-	 * @returns {T | null} Das vorherige Element oder null wenn nicht verfügbar
+	 * @returns {T} Das vorherige Element
 	 */
 	peekBack(steps = 1) {
 		if (typeof steps !== 'number' || !Number.isInteger(steps)) {
 			throw new Error(`steps soll positiv und ganzzahlig sein (statt [${steps}] typeof [${typeof steps}])`);
 		}
-		if (steps < 1 || steps > this.count) {
-			throw new Error(`steps soll positiv und ganzzahlig sein (statt ${steps} )`);
+		if (steps < 1 || steps > this.#count) {
+			throw new Error(`steps muss zwischen 1 und ${this.#count} liegen (statt ${steps})`);
 		}
-		const raw = this.currentIndex - this.count - steps;
-		const index = ((raw % this.size) + this.size) % this.size;	// vermeidet negativen wert
-		return this.buffer[index];
+		const raw = this.#currentIndex - this.#count + steps;
+		const index = ((raw % this.#size) + this.#size) % this.#size;	// vermeidet negativen wert
+		return this.#buffer[index];
+	}
+
+
+	/**
+	 * Iteriert vom ältesten zum neuesten Element.
+	 * Nur aktive Elemente (count), niemals null-Slots.
+	 * @returns {Iterator<T>}
+	 */
+	*[Symbol.iterator]() {
+		if (this.#count === 0) return;
+		const start = (this.#currentIndex - this.#count + this.#size) % this.#size;
+		for (let i = 0; i < this.#count; i++) {
+			yield this.#buffer[(start + i) % this.#size];
+		}
 	}
 
 	/**
@@ -595,16 +642,16 @@ export class RingBuffer {
 	 * @returns {boolean} true wenn leer, sonst false
 	 */
 	isEmpty() {
-		return this.count === 0;
+		return this.#count === 0;
 	}
 
 	/**
 	 * Leert den Buffer
 	 */
 	clear() {
-		this.buffer.fill(null);
-		this.currentIndex = 0;
-		this.count = 0;
+		this.#buffer.fill(null);
+		this.#currentIndex = 0;
+		this.#count = 0;
 	}
 }
 
@@ -658,7 +705,7 @@ export function navigateTo(tabName) {
 	const label = findByText(tabName, 'p', true);
 	if (!label) return false;
 	const listItem = label.closest('[role="button"]');
-	if (listItem) return clickElement(/** @type {HTMLElement} */ (listItem));
+	if (listItem) return clickElement(/** @type {HTMLElement} */(listItem));
 	return clickElement(label);
 }
 
@@ -674,7 +721,7 @@ export async function goToAlphaEnterprises(ns, delayMs = 500) {
 	await ns.sleep(delayMs);
 	const marker = doc.querySelector('span[aria-label="Alpha Enterprises"]');
 	if (!marker) return false;
-	clickElement(/** @type {HTMLElement} */ (marker));
+	clickElement(/** @type {HTMLElement} */(marker));
 	await ns.sleep(delayMs);
 	return true;
 }
